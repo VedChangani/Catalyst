@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #111827;
+  --color-paper: #F7F4EC;
+  --color-surface: #FFFDF8;
+  --color-muted: #667085;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-coral: #FF6B57;
+  --color-success: #20A67A;
+  --color-warning: #f59e0b;
+  --color-danger: #D64545;
+  --color-light-blue: #E8F0FF;
+  --color-light-coral: #FFF0EC;
+  --color-light-green: #E7F7F1;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply font-sans antialiased;
+    color: #111827;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: #2563EB;
+    color: #fff;
+  }
+}
+
+/* ─── APPLICATION SHELL ──────────────────────────────────────────
+   Single unified background system.
+   The grid is applied directly as background-image on .app-shell
+   so it layers on top of background-color by CSS spec — no
+   z-index issues with pseudo-elements.
+   ─────────────────────────────────────────────────────────────── */
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  background-color: #F7F4EC;
+  color: #111827;
+  background-image:
+    /* fine 32px grid */
+    linear-gradient(rgba(17, 24, 39, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 24, 39, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Soften grid on smaller screens */
+@media (max-width: 1024px) {
+  .app-shell {
+    background-image:
+      linear-gradient(rgba(17, 24, 39, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(17, 24, 39, 0.06) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    background-image:
+      linear-gradient(rgba(17, 24, 39, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(17, 24, 39, 0.05) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}
+
+@layer components {
+  .nb-card {
+    @apply bg-surface border-2 border-ink shadow-[3px_3px_0_#111827];
+  }
+
+  .nb-input {
+    @apply w-full border-2 border-ink bg-surface px-3.5 py-2.5 text-base text-ink placeholder:text-muted/70 outline-none transition-shadow focus:shadow-[3px_3px_0_#2563EB] disabled:opacity-60;
+  }
+
+  .nb-table {
+    @apply w-full border-collapse text-left;
+  }
+
+  .nb-table th {
+    @apply border-b-2 border-ink bg-paper px-4 py-3 text-xs font-extrabold uppercase tracking-wider text-ink;
+  }
+
+  .nb-table td {
+    @apply border-b border-ink/10 px-4 py-3.5 align-middle;
+  }
+
+  .nb-table tbody tr:hover {
+    @apply bg-light-blue/40;
+  }
+}

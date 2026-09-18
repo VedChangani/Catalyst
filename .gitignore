@@ -1,0 +1,15 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Frontend
+client/node_modules/
+client/dist/
+
+# Backend
+billingsoftware/target/
+
+# IntelliJ
+.idea/
+*.iml
