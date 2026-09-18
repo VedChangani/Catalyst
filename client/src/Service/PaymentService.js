@@ -1,9 +1,9 @@
-import axios from "axios";
+import apiClient from "../util/apiClient.js";
 
 export const createRazorpayOrder = async (data) => {
-    return await axios.post(`http://localhost:8080/api/v1.0/payments/create-order`, data, {headers: {'Authorization': `Bearer ${localStorage.getItem('token')}`}});
+    return await apiClient.post(`/payments/create-order`, data);
 }
 
 export const verifyPayment = async (paymentData) => {
-    return await axios.post('http://localhost:8080/api/v1.0/payments/verify', paymentData, {headers: {'Authorization': `Bearer ${localStorage.getItem('token')}`}});
+    return await apiClient.post('/payments/verify', paymentData);
 }

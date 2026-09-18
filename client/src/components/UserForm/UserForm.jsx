@@ -21,6 +21,7 @@ const UserForm = ({setUsers}) => {
 
     const onSubmitHandler = async (e) => {
         e.preventDefault();
+        if (loading) return;
         setLoading(true);
         try {
             const response = await addUser(data);
@@ -34,7 +35,7 @@ const UserForm = ({setUsers}) => {
             })
         } catch (e) {
             console.error(e);
-            toast.error("Error adding user");
+            toast.error(e.friendlyMessage || "Error adding user");
         } finally {
             setLoading(false);
         }

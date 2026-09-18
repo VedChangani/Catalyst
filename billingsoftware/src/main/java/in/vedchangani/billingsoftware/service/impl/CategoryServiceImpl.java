@@ -1,6 +1,8 @@
 package in.vedchangani.billingsoftware.service.impl;
 
 import in.vedchangani.billingsoftware.entity.CategoryEntity;
+import in.vedchangani.billingsoftware.exception.ConflictException;
+import in.vedchangani.billingsoftware.exception.ResourceNotFoundException;
 import in.vedchangani.billingsoftware.io.CategoryRequest;
 import in.vedchangani.billingsoftware.io.CategoryResponse;
 import in.vedchangani.billingsoftware.repository.CategoryRepository;
@@ -55,7 +57,18 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public void delete(String categoryId) {
         CategoryEntity existingCategory = categoryRepository.findByCategoryId(categoryId)
-                .orElseThrow(() -> new RuntimeException("Category not found: "+categoryId));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found: "+categoryId));
+
+        // A category with items still assigned to it cannot be deleted (the DB itself enforces
+        // this via ON DELETE RESTRICT on tbl_items.category_id) - check for that up front and
+        // report it as the business conflict it is, rather than letting the resulting
+        // DataIntegrityViolationException be mistaken for "category not found".
+        int itemCount = itemRepository.countByCategoryId(existingCategory.getId());
+        if (itemCount > 0) {
+            throw new ConflictException("Cannot delete category '" + existingCategory.getName()
+                    + "' because " + itemCount + " item(s) still reference it");
+        }
+
         //fileUploadService.deleteFile(existingCategory.getImgUrl());
         String imgUrl = existingCategory.getImgUrl();
         String fileName = imgUrl.substring(imgUrl.lastIndexOf("/")+1);

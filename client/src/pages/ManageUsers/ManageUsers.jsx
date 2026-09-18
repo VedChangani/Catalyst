@@ -18,7 +18,7 @@ const ManageUsers = () => {
                 setUsers(response.data);
             } catch (error) {
                 console.error(error);
-                toast.error("Unable to fetch users");
+                toast.error(error.friendlyMessage || "Unable to fetch users");
             } finally {
                 setLoading(false);
             }

@@ -25,6 +25,7 @@ const CategoryForm = () => {
 
     const onSubmitHandler = async (e) => {
         e.preventDefault();
+        if (loading) return;
 
         if (!image) {
             toast.error("Select image for category");
@@ -48,7 +49,7 @@ const CategoryForm = () => {
             }
         }catch(err) {
             console.error(err);
-            toast.error("Error adding category");
+            toast.error(err.friendlyMessage || "Error adding category");
         }finally {
             setLoading(false);
         }

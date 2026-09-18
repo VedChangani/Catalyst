@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+#Claude files
+CLAUDE.md
+
 # Frontend
 client/node_modules/
 client/dist/

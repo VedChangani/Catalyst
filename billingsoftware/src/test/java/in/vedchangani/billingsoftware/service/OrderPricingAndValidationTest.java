@@ -26,6 +26,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
@@ -83,7 +85,16 @@ class OrderPricingAndValidationTest {
                 .itemId(itemId)
                 .name(name)
                 .price(BigDecimal.valueOf(price))
+                .active(true)
+                .stockQuantity(100)
+                .reservedQuantity(0)
                 .build();
+    }
+
+    // These tests are about pricing, not inventory: every reservation/commit succeeds.
+    private void stockAlwaysAvailable() {
+        when(itemRepository.reserveStock(anyString(), anyInt())).thenReturn(1);
+        when(itemRepository.commitReservedStock(anyString(), anyInt())).thenReturn(1);
     }
 
     // ---- Server computes subtotal/tax/grandTotal from the catalog price, ignoring the client ----
@@ -93,6 +104,7 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 100.0)));
+        stockAlwaysAvailable();
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -127,6 +139,7 @@ class OrderPricingAndValidationTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 100.0)));
         when(itemRepository.findByItemId("ITEM2")).thenReturn(Optional.of(anItem("ITEM2", "Fries", 50.0)));
+        stockAlwaysAvailable();
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -158,6 +171,7 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 9.99)));
+        stockAlwaysAvailable();
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 

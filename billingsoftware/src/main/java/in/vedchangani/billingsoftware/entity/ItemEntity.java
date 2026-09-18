@@ -15,6 +15,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 
+// Inventory fields (sku, stockQuantity, reservedQuantity, lowStockThreshold, active, version) are
+// kept nullable for now - existing rows have no value yet. They are tightened to NOT NULL and
+// backfilled in a later batch, per the approved inventory plan; do not rely on defaults here.
+
 @Entity
 @Table(name = "tbl_items")
 @Data
@@ -47,4 +51,18 @@ public class ItemEntity {
     @JoinColumn(name = "category_id", nullable = false)
     @OnDelete(action = OnDeleteAction.RESTRICT)
     private CategoryEntity category;
+
+    // Unique index intentionally deferred to a later batch, after existing rows are backfilled.
+    private String sku;
+
+    private Integer stockQuantity;
+
+    private Integer reservedQuantity;
+
+    private Integer lowStockThreshold;
+
+    private Boolean active;
+
+    @Version
+    private Long version;
 }

@@ -12,12 +12,16 @@ const ReceiptPopup = ({orderDetails, onClose, onPrint}) => {
                 <p>
                     <strong>Order ID:</strong> {orderDetails.orderId}
                 </p>
-                <p>
-                    <strong>Name:</strong> {orderDetails.customerName}
-                </p>
-                <p>
-                    <strong>Phone:</strong> {orderDetails.phoneNumber}
-                </p>
+                {orderDetails.customerName && (
+                    <p>
+                        <strong>Name:</strong> {orderDetails.customerName}
+                    </p>
+                )}
+                {orderDetails.phoneNumber && (
+                    <p>
+                        <strong>Phone:</strong> {orderDetails.phoneNumber}
+                    </p>
+                )}
                 <hr className="my-3 border-ink/20" />
                 <h5 className="mb-3 font-extrabold">Items Ordered</h5>
                 <div className="mb-4 max-h-48 overflow-y-auto">

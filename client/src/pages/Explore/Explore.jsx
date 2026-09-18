@@ -5,12 +5,23 @@ import DisplayItems from "../../components/DisplayItems/DisplayItems.jsx";
 import CustomerForm from "../../components/CustomerForm/CustomerForm.jsx";
 import CartItems from "../../components/CartItems/CartItems.jsx";
 import CartSummary from "../../components/CartSummary/CartSummary.jsx";
+import LoadingState from "../../ui/LoadingState.jsx";
+import PageShell from "../../ui/PageShell.jsx";
 
 const Explore = () => {
-    const {categories} = useContext(AppContext);
+    const {categories, isCatalogLoading} = useContext(AppContext);
     const [selectedCategory, setSelectedCategory] = useState("");
     const [customerName, setCustomerName] = useState("");
     const [mobileNumber, setMobileNumber] = useState("");
+
+    if (isCatalogLoading) {
+        return (
+            <PageShell wide>
+                <LoadingState label="Loading store floor..." />
+            </PageShell>
+        );
+    }
+
     return (
         <div className="mx-auto grid min-h-[calc(100vh-5.5rem)] w-full max-w-[1440px] gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
             <section className="flex min-h-0 flex-col gap-5">

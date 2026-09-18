@@ -22,9 +22,36 @@ public class OrderResponse {
     private Double grandTotal;
     private PaymentMethod paymentMethod;
     private LocalDateTime createdAt;
-    private PaymentDetails paymentDetails;
+    private PaymentSummary paymentDetails;
     private OrderStatus orderStatus;
     private String paymentStatus;
+    // Null for legacy orders whose channel was never recorded.
+    private SalesChannel salesChannel;
+    // Staff member who entered a POS sale. Only populated in staff/admin-facing responses; never
+    // in a customer's own order history.
+    private StaffSummary createdBy;
+
+    // Public view of the persisted PaymentDetails: the cryptographic razorpaySignature is never
+    // returned to any client.
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class PaymentSummary {
+        private String razorpayOrderId;
+        private String razorpayPaymentId;
+        private PaymentDetails.PaymentStatus status;
+        private LocalDateTime paidAt;
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    public static class StaffSummary {
+        private String userId;
+        private String name;
+    }
 
     @Data
     @AllArgsConstructor
@@ -33,7 +60,10 @@ public class OrderResponse {
     public static class OrderItemResponse {
         private String itemId;
         private String name;
+        // Historical snapshot taken from OrderItemEntity at purchase time, never the current catalog.
         private Double price;
         private Integer quantity;
+        // snapshot price x quantity; null only for a legacy line missing either value.
+        private Double lineTotal;
     }
 }

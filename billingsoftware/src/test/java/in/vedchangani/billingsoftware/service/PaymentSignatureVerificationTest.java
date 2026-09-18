@@ -216,7 +216,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(order));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(order));
             when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
             when(razorpayService.verifyPaymentSignature("rzp_order_1", "rzp_pay_1", "good_sig")).thenReturn(true);
 
@@ -235,7 +235,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(order));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(order));
             when(razorpayService.verifyPaymentSignature(anyString(), anyString(), anyString())).thenReturn(false);
 
             assertThrows(RuntimeException.class,
@@ -256,7 +256,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(order));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(order));
 
             assertThrows(IllegalArgumentException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_SOMEONE_ELSE", "rzp_pay_1", "sig")));
@@ -275,7 +275,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("bob@example.com");
 
             when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(aliceOrder));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(aliceOrder));
 
             assertThrows(AccessDeniedException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "sig")));
@@ -293,7 +293,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(order));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(order));
             when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
             when(razorpayService.verifyPaymentSignature("rzp_order_1", "rzp_pay_1", "good_sig")).thenReturn(true);
 
@@ -318,7 +318,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(paidOrder));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(paidOrder));
 
             assertThrows(IllegalStateException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_DIFFERENT", "sig")));
@@ -335,14 +335,15 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(cancelled));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(cancelled));
 
             IllegalStateException ex = assertThrows(IllegalStateException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "sig")));
             assertTrue(ex.getMessage().contains("CANCELLED"));
 
             assertEquals(OrderStatus.CANCELLED, cancelled.getOrderStatus());
-            verify(razorpayService, never()).verifyPaymentSignature(anyString(), anyString(), anyString());
+            // Batch 14: the signature may be evaluated for a diagnostic late-payment log, but a
+            // terminal order is never saved, so it can never become PAID (see LatePaymentHandlingTest).
             verify(orderEntityRepository, never()).save(any());
         }
 
@@ -353,14 +354,15 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(failed));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(failed));
 
             IllegalStateException ex = assertThrows(IllegalStateException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "sig")));
             assertTrue(ex.getMessage().contains("PAYMENT_FAILED"));
 
             assertEquals(OrderStatus.PAYMENT_FAILED, failed.getOrderStatus());
-            verify(razorpayService, never()).verifyPaymentSignature(anyString(), anyString(), anyString());
+            // Batch 14: the signature may be evaluated for a diagnostic late-payment log, but a
+            // terminal order is never saved, so it can never become PAID (see LatePaymentHandlingTest).
             verify(orderEntityRepository, never()).save(any());
         }
 
@@ -372,7 +374,7 @@ class PaymentSignatureVerificationTest {
             authenticateAs("alice@example.com");
 
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(order));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(order));
 
             assertThrows(IllegalStateException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "sig")));
@@ -385,7 +387,7 @@ class PaymentSignatureVerificationTest {
         @Test
         void nonexistentOrderIsRejected() {
             authenticateAs("alice@example.com");
-            when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.empty());
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.empty());
 
             assertThrows(RuntimeException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "sig")));

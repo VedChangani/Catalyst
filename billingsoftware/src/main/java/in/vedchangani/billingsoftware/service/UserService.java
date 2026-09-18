@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.io.CustomerSummaryResponse;
 import in.vedchangani.billingsoftware.io.UserRequest;
 import in.vedchangani.billingsoftware.io.UserResponse;
 
@@ -14,4 +15,10 @@ public interface UserService {
     List<UserResponse> readUsers();
 
     void deleteUser(String id);
+
+    /**
+     * Read-only lookup of registered customers (ROLE_USER accounts) for a cashier/admin to
+     * explicitly select one for a POS sale. Returns only the minimum needed to pick a customer.
+     */
+    List<CustomerSummaryResponse> searchCustomers(String search);
 }

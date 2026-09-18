@@ -6,6 +6,7 @@ import com.razorpay.RazorpayException;
 import com.razorpay.Utils;
 import in.vedchangani.billingsoftware.entity.OrderEntity;
 import in.vedchangani.billingsoftware.entity.UserEntity;
+import in.vedchangani.billingsoftware.exception.ResourceNotFoundException;
 import in.vedchangani.billingsoftware.io.OrderStatus;
 import in.vedchangani.billingsoftware.io.PaymentDetails;
 import in.vedchangani.billingsoftware.io.RazorpayOrderResponse;
@@ -19,6 +20,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -32,8 +34,24 @@ public class RazorpayServiceImpl implements RazorpayService {
     private final OrderEntityRepository orderEntityRepository;
     private final UserRepository userRepository;
 
+    // Every payment is in Indian rupees. The currency is deliberately NOT client-controlled: the
+    // "currency" a caller may still send (PaymentRequest) is accepted for backward compatibility
+    // and ignored.
+    static final String PAYMENT_CURRENCY = "INR";
+
+    // Holds the local order's row lock (see resolveOrderForPayment) until the Razorpay order id is
+    // saved. Without it, this method's full-row save could land after a concurrent cancel/fail and
+    // silently flip the order - and its stock-reservation flag - back to PENDING_PAYMENT. The lock
+    // is held across the Razorpay API call; only concurrent transitions of this one order wait.
+    //
+    // Idempotent per local order: the first call creates exactly one Razorpay order and stores its
+    // id; every later call (double click, retry, refresh) returns that same provider order rebuilt
+    // from local state, without calling Razorpay and without touching the stored id. Replacing it
+    // would orphan the original order - a payment made against it could then never be verified.
+    // The row lock makes two concurrent first calls queue: the second one sees the stored id.
     @Override
-    public RazorpayOrderResponse createOrder(String localOrderId, String currency) throws RazorpayException {
+    @Transactional
+    public RazorpayOrderResponse createOrder(String localOrderId, String ignoredClientCurrency) throws RazorpayException {
         // Resolves and validates the local order; a client-supplied amount is never consulted -
         // the payment amount always comes from this order's authoritative grandTotal.
         OrderEntity localOrder = resolveOrderForPayment(localOrderId);
@@ -41,9 +59,19 @@ public class RazorpayServiceImpl implements RazorpayService {
         // Razorpay expects the amount in the smallest currency sub-unit (paise for INR).
         // Rounding, rather than truncating, avoids losing a paisa to floating-point error.
         long amountInPaise = Math.round(localOrder.getGrandTotal() * 100);
-        String effectiveCurrency = (currency == null || currency.isBlank()) ? "INR" : currency;
 
-        RazorpayOrderResponse response = callRazorpayCreateOrder(amountInPaise, effectiveCurrency);
+        PaymentDetails existingDetails = localOrder.getPaymentDetails();
+        if (existingDetails != null && existingDetails.getRazorpayOrderId() != null) {
+            return RazorpayOrderResponse.builder()
+                    .id(existingDetails.getRazorpayOrderId())
+                    .entity("order")
+                    .amount(Math.toIntExact(amountInPaise))
+                    .currency(PAYMENT_CURRENCY)
+                    .status("created")
+                    .build();
+        }
+
+        RazorpayOrderResponse response = callRazorpayCreateOrder(amountInPaise, PAYMENT_CURRENCY);
 
         // Record the Razorpay order ID against the local order so it can be matched up during
         // verification. This does NOT change the local order's status - it stays
@@ -68,15 +96,16 @@ public class RazorpayServiceImpl implements RazorpayService {
      * Loads the local order by orderId and enforces the invariants required before a Razorpay
      * order can be created for it:
      *  - the order must exist
-     *  - it must belong to the currently authenticated user
+     *  - it must belong to the currently authenticated user (or, for a POS order, have been
+     *    entered by them)
      *  - it must still be PENDING_PAYMENT (not already PAID, CANCELLED, or PAYMENT_FAILED)
      */
     private OrderEntity resolveOrderForPayment(String localOrderId) {
-        OrderEntity localOrder = orderEntityRepository.findByOrderId(localOrderId)
-                .orElseThrow(() -> new RuntimeException("Order not found: " + localOrderId));
+        OrderEntity localOrder = orderEntityRepository.findByOrderIdForUpdate(localOrderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found: " + localOrderId));
 
         UserEntity currentUser = getAuthenticatedUser();
-        if (localOrder.getUser() == null || !localOrder.getUser().getId().equals(currentUser.getId())) {
+        if (!localOrder.canBeManagedBy(currentUser)) {
             throw new AccessDeniedException("You are not authorized to create a payment for this order");
         }
 
@@ -100,7 +129,7 @@ public class RazorpayServiceImpl implements RazorpayService {
         }
         String email = authentication.getName();
         return userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Authenticated user not found: " + email));
+                .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found: " + email));
     }
 
     /**

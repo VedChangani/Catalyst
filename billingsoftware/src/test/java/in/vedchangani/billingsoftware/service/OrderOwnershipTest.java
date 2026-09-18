@@ -82,6 +82,9 @@ class OrderOwnershipTest {
                 .itemId(itemId)
                 .name(name)
                 .price(BigDecimal.valueOf(price))
+                .active(true)
+                .stockQuantity(100)
+                .reservedQuantity(0)
                 .build();
     }
 
@@ -100,6 +103,8 @@ class OrderOwnershipTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(aliceEntity));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 50.0)));
+        when(itemRepository.reserveStock("ITEM1", 2)).thenReturn(1);
+        when(itemRepository.commitReservedStock("ITEM1", 2)).thenReturn(1);
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 

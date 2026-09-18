@@ -24,6 +24,7 @@ const Login = () => {
 
     const onSubmitHandler = async (e) => {
         e.preventDefault();
+        if (loading) return;
         setLoading(true);
         try {
             const response = await login(data);
@@ -37,13 +38,15 @@ const Login = () => {
 
                 if (response.data.role === "ROLE_ADMIN") {
                     navigate("/dashboard");
+                } else if (response.data.role === "ROLE_CASHIER") {
+                    navigate("/pos");
                 } else {
                     navigate("/explore");
                 }
             }
         } catch (error) {
             console.error(error);
-            toast.error("Email/Password Invalid");
+            toast.error(error.friendlyMessage || "Email/Password Invalid");
         } finally {
             setLoading(false);
         }

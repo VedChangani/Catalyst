@@ -7,24 +7,27 @@ import StatCard from "../../ui/StatCard.jsx";
 import LoadingState from "../../ui/LoadingState.jsx";
 import EmptyState from "../../ui/EmptyState.jsx";
 import Badge from "../../ui/Badge.jsx";
+import Button from "../../ui/Button.jsx";
 
 const Dashboard = () => {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [reloadToken, setReloadToken] = useState(0);
     useEffect(() => {
         const loadData = async () => {
+            setLoading(true);
             try {
                 const response = await fetchDashboardData();
                 setData(response.data);
             } catch (error) {
                 console.error(error);
-                toast.error("Unable to view the data");
+                toast.error(error.friendlyMessage || "Unable to view the data");
             } finally {
                 setLoading(false);
             }
         }
         loadData();
-    }, []);
+    }, [reloadToken]);
 
     if (loading) {
         return (
@@ -40,6 +43,11 @@ const Dashboard = () => {
                 <EmptyState
                     title="Failed to load the dashboard data..."
                     description="The operations snapshot could not be retrieved. Try again in a moment."
+                    action={
+                        <Button variant="dark" size="sm" onClick={() => setReloadToken((token) => token + 1)}>
+                            Try again
+                        </Button>
+                    }
                 />
             </PageShell>
         );

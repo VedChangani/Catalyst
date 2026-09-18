@@ -7,6 +7,11 @@ public interface RazorpayService {
 
     // The amount is never a parameter here: it is resolved server-side from the local
     // order's authoritative grandTotal, keyed by localOrderId. See RazorpayServiceImpl.
+    /**
+     * Creates - once - the Razorpay order for a PENDING_PAYMENT local order and returns it; later
+     * calls return the same stored provider order without calling Razorpay again. The payment
+     * currency is always INR: the {@code currency} argument is ignored (kept for compatibility).
+     */
     RazorpayOrderResponse createOrder(String localOrderId, String currency) throws RazorpayException;
 
     /**

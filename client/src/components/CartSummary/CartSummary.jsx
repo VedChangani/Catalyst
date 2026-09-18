@@ -7,8 +7,12 @@ import {createRazorpayOrder, verifyPayment} from "../../Service/PaymentService.j
 import {AppConstants} from "../../util/constants.js";
 import Button from "../../ui/Button.jsx";
 
-const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerName}) => {
-    const {cartItems, clearCart} = useContext(AppContext);
+// posMode (cashier/admin billing): billing name/phone are optional, an explicitly selected
+// registered customer (posCustomer, chosen via the backend lookup) is sent by its userId, and a
+// finished sale shows its receipt straight away and resets the cart and the customer selection.
+const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerName,
+                         posMode = false, posCustomer = null, onSaleFinished}) => {
+    const {cartItems, itemsData, clearCart, refreshCatalog, auth} = useContext(AppContext);
 
     const [isProcessing, setIsProcessing] = useState(false);
     const [orderDetails, setOrderDetails] = useState(null);
@@ -21,14 +25,60 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
     // by a cancel call against the order that was just paid.
     const checkoutSettledRef = useRef(false);
 
+    // Idempotency key of the checkout attempt in flight (sent as the Idempotency-Key header). The
+    // same key is reused only for a retry of the SAME logical request - identical cart, billing
+    // details, customer and payment method (tracked by checkoutSignatureRef) - so a network retry
+    // is answered with the already-created order. Any change to the request gets a fresh key, and
+    // the key is dropped as soon as the attempt is finished (see resetCheckoutKey). Refs, so
+    // ordinary re-renders never disturb it.
+    const checkoutKeyRef = useRef(null);
+    const checkoutSignatureRef = useRef(null);
+
+    const resetCheckoutKey = () => {
+        checkoutKeyRef.current = null;
+        checkoutSignatureRef.current = null;
+    };
+
+    const keyForRequest = (signature) => {
+        if (!checkoutKeyRef.current || checkoutSignatureRef.current !== signature) {
+            // crypto.randomUUID needs a secure context (https/localhost); fall back so checkout never breaks
+            checkoutKeyRef.current = typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
+            checkoutSignatureRef.current = signature;
+        }
+        return checkoutKeyRef.current;
+    };
+
     const totalAmount = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
     const tax = totalAmount * 0.01;
     const grandTotal = totalAmount + tax;
 
+    // Display/UX-only check against the latest fetched catalog data (mirrors CartItems.jsx) so
+    // checkout isn't even attempted when the cart is already known to be stale. The backend
+    // still re-validates and is the only authority that can actually reject an order.
+    const hasKnownInventoryIssue = cartItems.some(cartItem => {
+        const catalogItem = itemsData.find(item => item.itemId === cartItem.itemId);
+        if (!catalogItem) return true;
+        if (catalogItem.active !== true) return true;
+        const availableQuantity = catalogItem.availableQuantity;
+        return availableQuantity == null || cartItem.quantity > availableQuantity;
+    });
+
     const clearAll = () => {
+        resetCheckoutKey();
         setCustomerName("");
         setMobileNumber("");
         clearCart();
+        if (onSaleFinished) onSaleFinished();
+    }
+
+    // POS only: a verified/paid sale is closed out immediately, so a second tap on Cash/UPI can
+    // never bill the same cart twice.
+    const finishPosSale = (paidOrder) => {
+        setOrderDetails(paidOrder);
+        setShowPopup(true);
+        clearAll();
     }
 
     const placeOrder = () => {
@@ -67,8 +117,13 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
     }
 
     const completePayment = async (paymentMode) => {
-        if (!customerName || !mobileNumber) {
+        if (isProcessing) return;
+        if (!posMode && (!customerName || !mobileNumber)) {
             toast.error("Please enter customer details");
+            return;
+        }
+        if (posMode && mobileNumber && !/^[0-9]{10}$/.test(mobileNumber)) {
+            toast.error("Mobile number must be exactly 10 digits");
             return;
         }
 
@@ -76,16 +131,40 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
             toast.error("Your cart is empty");
             return;
         }
+        if (hasKnownInventoryIssue) {
+            toast.error("Some items in your cart are no longer available in the requested quantity. Please review your cart and try again.");
+            return;
+        }
         // Only itemId + quantity are sent for each cart line; name, price, subtotal, tax and
         // grandTotal are never client-authoritative - the server looks up prices from the item
         // catalog and computes the totals itself. totalAmount/tax/grandTotal above remain purely
         // for the on-screen summary.
-        const orderData = {
+        const orderData = posMode ? {
+            // POS request contract: no channel/creator/price fields. customerUserId is present
+            // only for an explicitly selected registered customer; absent = walk-in.
+            ...(posCustomer ? {customerUserId: posCustomer.userId} : {}),
+            ...(customerName.trim() ? {customerName: customerName.trim()} : {}),
+            ...(mobileNumber ? {phoneNumber: mobileNumber} : {}),
+            cartItems: cartItems.map(({itemId, quantity}) => ({itemId, quantity})),
+            paymentMethod: paymentMode.toUpperCase()
+        } : {
             customerName,
             phoneNumber: mobileNumber,
             cartItems: cartItems.map(({itemId, quantity}) => ({itemId, quantity})),
             paymentMethod: paymentMode.toUpperCase()
         }
+        // The logical request, order-insensitive for cart lines. Compared with the previous
+        // attempt's to decide whether this is a retry (same key) or a new request (new key).
+        const signature = JSON.stringify({
+            posMode,
+            customer: posCustomer?.userId ?? null,
+            name: customerName.trim(),
+            phone: mobileNumber,
+            method: paymentMode,
+            lines: cartItems.map(({itemId, quantity}) => [itemId, quantity]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+        });
+        const idempotencyKey = keyForRequest(signature);
+        let orderCreated = false;
         setIsProcessing(true);
         // Drop any previously verified order before starting a new attempt. Without this, a
         // successful earlier order would leave orderDetails populated and PAID, which would keep
@@ -94,17 +173,26 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
         setOrderDetails(null);
         try {
 
-            const response = await createOrder(orderData);
+            const response = await createOrder(orderData, auth.role !== "ROLE_USER", idempotencyKey);
             const savedData = response.data;
-            if (response.status === 201 && paymentMode === "cash") {
+            // 201 = created now, 200 = the backend replayed the order of an earlier attempt with
+            // this key. From here on the order exists, so this key must not be reused (below).
+            orderCreated = true;
+            if ((response.status === 201 || response.status === 200) && paymentMode === "cash") {
+                resetCheckoutKey();
                 toast.success("Cash received");
-                setOrderDetails(savedData);
+                if (posMode) {
+                    finishPosSale(savedData);
+                } else {
+                    setOrderDetails(savedData);
+                }
                 setIsProcessing(false);
-            } else if (response.status === 201 && paymentMode === "upi") {
+            } else if ((response.status === 201 || response.status === 200) && paymentMode === "upi") {
                 const razorpayLoaded = await loadRazorpayScript();
                 if (!razorpayLoaded) {
                     toast.error('Unable to load razorpay');
                     await handleOrderCancellation(savedData.orderId);
+                    resetCheckoutKey();
                     setIsProcessing(false);
                     return;
                 }
@@ -132,11 +220,12 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                         try {
                             await verifyPaymentHandler(response, savedData);
                         } finally {
+                            resetCheckoutKey();
                             setIsProcessing(false);
                         }
                     },
                     prefill: {
-                        name: customerName,
+                        name: customerName || posCustomer?.name,
                         contact: mobileNumber
                     },
                     theme: {
@@ -149,6 +238,7 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                             if (checkoutSettledRef.current) return;
                             checkoutSettledRef.current = true;
                             await handleOrderCancellation(savedData.orderId);
+                            resetCheckoutKey();
                             toast.error("Payment cancelled");
                             setIsProcessing(false);
                         }
@@ -159,6 +249,7 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                     if (checkoutSettledRef.current) return;
                     checkoutSettledRef.current = true;
                     await handlePaymentFailure(savedData.orderId);
+                    resetCheckoutKey();
                     toast.error("Payment failed");
                     console.error(response.error.description);
                     setIsProcessing(false);
@@ -170,7 +261,28 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
             }
         }catch(error) {
             console.error(error);
-            toast.error("Payment processing failed");
+            // Keep the key only while it is still useful: no reply at all (network error/timeout) or
+            // a 5xx means the order may or may not exist, so the retry must send the SAME key and
+            // let the backend answer. A definitive 4xx rejection created nothing, and once the
+            // order exists a later failure (e.g. opening the payment step) ends this attempt.
+            if (orderCreated || (error.response && error.response.status < 500)) {
+                resetCheckoutKey();
+            }
+            if (error.response?.status === 409) {
+                // A stock/inventory conflict from order creation - the backend's own message is
+                // already customer-safe (see GlobalExceptionHandler/ConflictException), so prefer
+                // it; fall back to a generic inventory-specific message if it's ever missing.
+                // No order was created here, so there is nothing to cancel/fail, and orderDetails
+                // was already cleared above - no false success, no receipt.
+                toast.error(error.friendlyMessage
+                    || "Some items are no longer available in the requested quantity. Please review your cart and try again.");
+                // Best-effort refresh so the badges/limits in the catalog and cart reflect the
+                // current stock right away, instead of the customer discovering it's still stale
+                // only on their next attempt.
+                refreshCatalog();
+            } else {
+                toast.error(error.friendlyMessage || "Payment processing failed");
+            }
             setIsProcessing(false);
         }
     }
@@ -193,7 +305,11 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
             // Razorpay callback or from the HTTP status alone.
             if (paymentResponse.status === 200 && verifiedOrder?.orderStatus === "PAID") {
                 toast.success("Payment successful");
-                setOrderDetails(verifiedOrder);
+                if (posMode) {
+                    finishPosSale(verifiedOrder);
+                } else {
+                    setOrderDetails(verifiedOrder);
+                }
             } else {
                 // Verification did not confirm payment. Leave orderDetails null so the receipt
                 // stays unavailable; the order keeps whatever state the backend decided.
@@ -206,9 +322,8 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
             // A rejected verification (bad signature, mismatched Razorpay order, wrong owner,
             // invalid state) or a network failure both land here. In every case the backend
             // remains the source of truth - we do not mark anything paid client-side.
-            const message = error?.response?.data?.message;
-            toast.error(message
-                ? `Payment verification failed: ${message}`
+            toast.error(error.friendlyMessage
+                ? `Payment verification failed: ${error.friendlyMessage}`
                 : "Payment verification failed. Your order has not been marked paid.");
         }
     };
@@ -233,12 +348,17 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                 </div>
             </div>
 
+            {hasKnownInventoryIssue && (
+                <p className="mt-4 border-2 border-ink bg-danger/15 px-2 py-1 text-sm font-semibold text-danger">
+                    Some items in your cart are no longer available in the requested quantity. Adjust your cart to continue.
+                </p>
+            )}
             <div className="mt-4 grid grid-cols-2 gap-3">
                 <Button
                     variant="success"
                     className="w-full"
                     onClick={() => completePayment("cash")}
-                    disabled={isProcessing}
+                    disabled={isProcessing || hasKnownInventoryIssue}
                 >
                     {isProcessing ? "Processing...": "Cash"}
                 </Button>
@@ -246,7 +366,7 @@ const CartSummary = ({customerName, mobileNumber, setMobileNumber, setCustomerNa
                     variant="primary"
                     className="w-full"
                     onClick={() => completePayment("upi")}
-                    disabled={isProcessing}
+                    disabled={isProcessing || hasKnownInventoryIssue}
                 >
                     {isProcessing ? "Processing...": "UPI"}
                 </Button>

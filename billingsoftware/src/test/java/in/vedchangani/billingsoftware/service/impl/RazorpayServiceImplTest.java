@@ -102,7 +102,7 @@ class RazorpayServiceImplTest {
         OrderEntity order = anOrder("ORD1", 202.0, OrderStatus.PENDING_PAYMENT, alice);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD1")).thenReturn(Optional.of(order));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(order));
         when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         stubRazorpayCall("rzp_order_1", 20200L);
 
@@ -139,7 +139,7 @@ class RazorpayServiceImplTest {
         OrderEntity order = anOrder("ORD1", 500.0, OrderStatus.PENDING_PAYMENT, alice);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD1")).thenReturn(Optional.of(order));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(order));
         when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         stubRazorpayCall("rzp_order_500", 50_000L);
 
@@ -163,7 +163,7 @@ class RazorpayServiceImplTest {
         OrderEntity order = anOrder("ORD-CORRECT", 250.0, OrderStatus.PENDING_PAYMENT, alice);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD-CORRECT")).thenReturn(Optional.of(order));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD-CORRECT")).thenReturn(Optional.of(order));
         when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         stubRazorpayCall("rzp_order_correct", 25_000L);
 
@@ -191,7 +191,7 @@ class RazorpayServiceImplTest {
         legacyOrder.setPaymentDetails(null);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD-LEGACY")).thenReturn(Optional.of(legacyOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD-LEGACY")).thenReturn(Optional.of(legacyOrder));
         when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         stubRazorpayCall("rzp_order_legacy", 10_000L);
 
@@ -210,7 +210,7 @@ class RazorpayServiceImplTest {
         OrderEntity aliceOrder = anOrder("ORD1", 100.0, OrderStatus.PENDING_PAYMENT, alice);
 
         when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
-        when(orderEntityRepository.findByOrderId("ORD1")).thenReturn(Optional.of(aliceOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(aliceOrder));
 
         assertThrows(AccessDeniedException.class, () -> razorpayService.createOrder("ORD1", "INR"));
         verify(orderEntityRepository, never()).save(any());
@@ -220,7 +220,7 @@ class RazorpayServiceImplTest {
     @Test
     void createOrder_rejectsNonExistentOrder() {
         authenticateAs("alice@example.com");
-        when(orderEntityRepository.findByOrderId("GHOST")).thenReturn(Optional.empty());
+        when(orderEntityRepository.findByOrderIdForUpdate("GHOST")).thenReturn(Optional.empty());
 
         assertThrows(RuntimeException.class, () -> razorpayService.createOrder("GHOST", "INR"));
         verify(orderEntityRepository, never()).save(any());
@@ -234,7 +234,7 @@ class RazorpayServiceImplTest {
         OrderEntity paidOrder = anOrder("ORD1", 100.0, OrderStatus.PAID, alice);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD1")).thenReturn(Optional.of(paidOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(paidOrder));
 
         assertThrows(IllegalStateException.class, () -> razorpayService.createOrder("ORD1", "INR"));
         verify(orderEntityRepository, never()).save(any());
@@ -247,7 +247,7 @@ class RazorpayServiceImplTest {
         OrderEntity cancelledOrder = anOrder("ORD1", 100.0, OrderStatus.CANCELLED, alice);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD1")).thenReturn(Optional.of(cancelledOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(cancelledOrder));
 
         assertThrows(IllegalStateException.class, () -> razorpayService.createOrder("ORD1", "INR"));
         verify(orderEntityRepository, never()).save(any());
@@ -260,9 +260,91 @@ class RazorpayServiceImplTest {
         OrderEntity failedOrder = anOrder("ORD1", 100.0, OrderStatus.PAYMENT_FAILED, alice);
 
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD1")).thenReturn(Optional.of(failedOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(failedOrder));
 
         assertThrows(IllegalStateException.class, () -> razorpayService.createOrder("ORD1", "INR"));
+        verify(orderEntityRepository, never()).save(any());
+    }
+
+    // ---- Batch 14: idempotent create-order, server-controlled currency ----
+
+    @Test
+    void createOrder_calledTwice_callsRazorpayOnce_andKeepsTheStoredRazorpayOrderId() throws Exception {
+        UserEntity alice = aUser(1L, "alice@example.com");
+        authenticateAs("alice@example.com");
+        OrderEntity order = anOrder("ORD1", 202.0, OrderStatus.PENDING_PAYMENT, alice);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(order));
+        when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubRazorpayCall("rzp_order_first", 20_200L);
+
+        RazorpayOrderResponse first = razorpayService.createOrder("ORD1", "INR");
+        RazorpayOrderResponse second = razorpayService.createOrder("ORD1", "INR");
+
+        assertEquals("rzp_order_first", first.getId());
+        assertEquals("rzp_order_first", second.getId());
+        // exactly one provider order was created, and the stored id was written once and kept
+        verify(razorpayService, times(1)).callRazorpayCreateOrder(anyLong(), any());
+        verify(orderEntityRepository, times(1)).save(any(OrderEntity.class));
+        assertEquals("rzp_order_first", order.getPaymentDetails().getRazorpayOrderId());
+        // the repeat is rebuilt from the local order: same amount (grandTotal x 100), INR
+        assertEquals(20_200, second.getAmount());
+        assertEquals("INR", second.getCurrency());
+        assertEquals("created", second.getStatus());
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getOrderStatus());
+    }
+
+    @Test
+    void createOrder_neverOverwritesAnAlreadyStoredRazorpayOrderId() throws Exception {
+        UserEntity alice = aUser(1L, "alice@example.com");
+        authenticateAs("alice@example.com");
+        OrderEntity order = anOrder("ORD1", 100.0, OrderStatus.PENDING_PAYMENT, alice);
+        order.getPaymentDetails().setRazorpayOrderId("rzp_original");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(order));
+
+        RazorpayOrderResponse response = razorpayService.createOrder("ORD1", "INR");
+
+        assertEquals("rzp_original", response.getId());
+        assertEquals(10_000, response.getAmount());
+        verify(razorpayService, never()).callRazorpayCreateOrder(anyLong(), any());
+        verify(orderEntityRepository, never()).save(any());
+        assertEquals("rzp_original", order.getPaymentDetails().getRazorpayOrderId());
+    }
+
+    @Test
+    void createOrder_alwaysCreatesTheProviderOrderInInr_whateverCurrencyTheClientSends() throws Exception {
+        for (String clientCurrency : new String[]{"INR", "USD", "usd", "EUR", "", null, "not-a-currency"}) {
+            razorpayService = spy(new RazorpayServiceImpl(orderEntityRepository, userRepository));
+            UserEntity alice = aUser(1L, "alice@example.com");
+            authenticateAs("alice@example.com");
+            OrderEntity order = anOrder("ORD-CUR", 75.5, OrderStatus.PENDING_PAYMENT, alice);
+            when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD-CUR")).thenReturn(Optional.of(order));
+            when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+            stubRazorpayCall("rzp_cur", 7_550L);
+
+            razorpayService.createOrder("ORD-CUR", clientCurrency);
+
+            // amount = persisted grandTotal x 100 (Rs.75.50 -> 7550 paise); currency is always INR
+            verify(razorpayService).callRazorpayCreateOrder(eq(7_550L), eq("INR"));
+            verify(razorpayService, never()).callRazorpayCreateOrder(anyLong(), argThat(c -> !"INR".equals(c)));
+        }
+    }
+
+    @Test
+    void createOrder_repeatOnATerminalOrderStillCreatesNothing() {
+        UserEntity alice = aUser(1L, "alice@example.com");
+        authenticateAs("alice@example.com");
+        for (OrderStatus terminal : new OrderStatus[]{OrderStatus.PAID, OrderStatus.CANCELLED, OrderStatus.PAYMENT_FAILED}) {
+            OrderEntity order = anOrder("ORD-T", 100.0, terminal, alice);
+            order.getPaymentDetails().setRazorpayOrderId("rzp_existing");
+            when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+            when(orderEntityRepository.findByOrderIdForUpdate("ORD-T")).thenReturn(Optional.of(order));
+
+            // even with a stored provider id, a non-pending order gets neither a new nor the old one
+            assertThrows(IllegalStateException.class, () -> razorpayService.createOrder("ORD-T", "INR"));
+        }
         verify(orderEntityRepository, never()).save(any());
     }
 }

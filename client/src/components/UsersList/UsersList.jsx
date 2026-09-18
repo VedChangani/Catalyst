@@ -7,19 +7,24 @@ import EmptyState from "../../ui/EmptyState.jsx";
 
 const UsersList = ({users, setUsers}) => {
     const [searchTerm, setSearchTerm] = useState("");
+    const [deletingId, setDeletingId] = useState(null);
 
     const filteredUsers = users.filter(user =>
         user.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const deleteByUserId = async (id) => {
+        if (deletingId) return;
+        setDeletingId(id);
         try {
             await deleteUser(id);
             setUsers(prevUsers => prevUsers.filter(user => user.userId !== id));
             toast.success("User deleted");
         }catch (e) {
             console.error(e);
-            toast.error("Unable to deleting user");
+            toast.error(e.friendlyMessage || "Unable to delete user");
+        } finally {
+            setDeletingId(null);
         }
     }
 
@@ -68,7 +73,13 @@ const UsersList = ({users, setUsers}) => {
                                     </Badge>
                                 </td>
                                 <td>
-                                    <Button variant="danger" size="sm" onClick={() => deleteByUserId(user.userId)} aria-label="Delete user">
+                                    <Button
+                                        variant="danger"
+                                        size="sm"
+                                        onClick={() => deleteByUserId(user.userId)}
+                                        disabled={deletingId === user.userId}
+                                        aria-label="Delete user"
+                                    >
                                         <i className="bi bi-trash"></i>
                                     </Button>
                                 </td>

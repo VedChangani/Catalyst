@@ -3,11 +3,10 @@ package in.vedchangani.billingsoftware.controller;
 import in.vedchangani.billingsoftware.io.UserRequest;
 import in.vedchangani.billingsoftware.io.UserResponse;
 import in.vedchangani.billingsoftware.service.UserService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -20,12 +19,8 @@ public class UserController {
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public UserResponse registerUser(@RequestBody UserRequest request) {
-        try {
-            return userService.createUser(request);
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to create user "+e.getMessage());
-        }
+    public UserResponse registerUser(@Valid @RequestBody UserRequest request) {
+        return userService.createUser(request);
     }
 
     @GetMapping("/users")
@@ -36,10 +31,6 @@ public class UserController {
     @DeleteMapping("/users/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteUser(@PathVariable String id) {
-        try {
-            userService.deleteUser(id);
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
-        }
+        userService.deleteUser(id);
     }
 }
