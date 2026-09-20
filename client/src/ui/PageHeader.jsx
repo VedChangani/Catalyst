@@ -1,6 +1,6 @@
 const PageHeader = ({ kicker, title, description, actions }) => {
   return (
-    <div className="mb-8 flex flex-col gap-4 border-b-2 border-ink/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-3 flex flex-col gap-4 border-b-2 border-ink/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
       <div>
         {kicker && (
           <p className="mb-1 text-xs font-extrabold uppercase tracking-[0.18em] text-muted">
