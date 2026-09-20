@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+#Claude files
+CLAUDE.md
+
 # Frontend
 client/node_modules/
 client/dist/
@@ -13,3 +16,6 @@ billingsoftware/target/
 # IntelliJ
 .idea/
 *.iml
+
+# Uploads
+billingsoftware/uploads/*

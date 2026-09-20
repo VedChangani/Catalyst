@@ -53,11 +53,14 @@ class OrderLifecycleTest {
     @Mock
     private RazorpayService razorpayService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
     }
 
     @AfterEach
@@ -75,6 +78,8 @@ class OrderLifecycleTest {
         user.setId(id);
         user.setEmail(email);
         user.setRole("ROLE_USER");
+        user.setName("Customer " + id);
+        user.setMobile("987654321" + id);
         return user;
     }
 
@@ -84,13 +89,14 @@ class OrderLifecycleTest {
                 .itemId(itemId)
                 .name(name)
                 .price(BigDecimal.valueOf(price))
+                .active(true)
+                .stockQuantity(100)
+                .reservedQuantity(0)
                 .build();
     }
 
     private OrderRequest anOrderRequest(String paymentMethod) {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 2)))
                 .paymentMethod(paymentMethod)
                 .build();
@@ -107,9 +113,9 @@ class OrderLifecycleTest {
                 .orderId("ORD123")
                 .customerName("Walk-in Customer")
                 .phoneNumber("9999999999")
-                .subtotal(100.0)
-                .tax(5.0)
-                .grandTotal(105.0)
+                .subtotal(new BigDecimal("100.0"))
+                .tax(new BigDecimal("5.0"))
+                .grandTotal(new BigDecimal("105.0"))
                 .paymentMethod(PaymentMethod.UPI)
                 .orderStatus(OrderStatus.PENDING_PAYMENT)
                 .paymentDetails(pd)
@@ -125,6 +131,8 @@ class OrderLifecycleTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 50.0)));
+        when(itemRepository.reserveStock("ITEM1", 2)).thenReturn(1);
+        when(itemRepository.commitReservedStock("ITEM1", 2)).thenReturn(1);
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -147,6 +155,7 @@ class OrderLifecycleTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 50.0)));
+        when(itemRepository.reserveStock("ITEM1", 2)).thenReturn(1);
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -170,7 +179,7 @@ class OrderLifecycleTest {
 
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(pendingOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(pendingOrder));
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(razorpayService.verifyPaymentSignature("rzp_order_1", "rzp_pay_1", "sig_1")).thenReturn(true);
@@ -200,7 +209,7 @@ class OrderLifecycleTest {
 
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(cancelledOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(cancelledOrder));
 
         PaymentVerificationRequest request = new PaymentVerificationRequest();
         request.setOrderId("ORD123");
@@ -224,7 +233,7 @@ class OrderLifecycleTest {
 
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(failedOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(failedOrder));
 
         PaymentVerificationRequest request = new PaymentVerificationRequest();
         request.setOrderId("ORD123");
@@ -246,7 +255,7 @@ class OrderLifecycleTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
 
         OrderEntity pendingOrder = aPendingUpiOrder(alice);
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(pendingOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(pendingOrder));
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -266,7 +275,7 @@ class OrderLifecycleTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
 
         OrderEntity pendingOrder = aPendingUpiOrder(alice);
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(pendingOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(pendingOrder));
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -287,7 +296,7 @@ class OrderLifecycleTest {
         when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
 
         OrderEntity aliceOrder = aPendingUpiOrder(alice);
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(aliceOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(aliceOrder));
 
         assertThrows(AccessDeniedException.class,
                 () -> orderService.cancelOrder("ORD123"));
@@ -304,7 +313,7 @@ class OrderLifecycleTest {
         OrderEntity paidOrder = aPendingUpiOrder(alice);
         paidOrder.setOrderStatus(OrderStatus.PAID);
         paidOrder.getPaymentDetails().setStatus(PaymentDetails.PaymentStatus.COMPLETED);
-        when(orderEntityRepository.findByOrderId("ORD123")).thenReturn(Optional.of(paidOrder));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD123")).thenReturn(Optional.of(paidOrder));
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> orderService.cancelOrder("ORD123"));

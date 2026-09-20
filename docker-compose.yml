@@ -1,0 +1,62 @@
+# Additional way to run Catalyst: `docker compose up --build`  (app at http://localhost:${FRONTEND_PORT:-8081})
+# Values come from the git-ignored root .env (see .env.example, "Docker" section). Local runs are unaffected.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DOCKER_MYSQL_ROOT_PASSWORD:?set DOCKER_MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: billing_app
+      MYSQL_USER: ${DOCKER_MYSQL_USER:-catalyst}
+      MYSQL_PASSWORD: ${DOCKER_MYSQL_PASSWORD:?set DOCKER_MYSQL_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  backend:
+    build: ./billingsoftware
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/billing_app
+      DB_USERNAME: ${DOCKER_MYSQL_USER:-catalyst}
+      DB_PASSWORD: ${DOCKER_MYSQL_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      AWS_ACCESS_KEY: ${AWS_ACCESS_KEY:-}
+      AWS_SECRET_KEY: ${AWS_SECRET_KEY:-}
+      AWS_REGION: ${AWS_REGION:-eu-north-1}
+      AWS_BUCKET_NAME: ${AWS_BUCKET_NAME:-}
+      # The browser talks only to the frontend origin; nginx proxies /api/ to this service.
+      APP_CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-8081}
+      APP_UPLOADS_DIR: /app/uploads
+      APP_UPLOADS_PUBLIC_BASE_URL: http://localhost:${FRONTEND_PORT:-8081}/api/v1.0/uploads
+      APP_ADMIN_BOOTSTRAP_ENABLED: ${APP_ADMIN_BOOTSTRAP_ENABLED:-false}
+      APP_ADMIN_NAME: ${APP_ADMIN_NAME:-}
+      APP_ADMIN_EMAIL: ${APP_ADMIN_EMAIL:-}
+      APP_ADMIN_MOBILE: ${APP_ADMIN_MOBILE:-}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-}
+    volumes:
+      - uploads-data:/app/uploads
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./client
+      args:
+        VITE_RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+
+volumes:
+  mysql-data:
+  uploads-data:

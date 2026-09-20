@@ -8,12 +8,15 @@ import EmptyState from "../../ui/EmptyState.jsx";
 const CategoryList = () => {
     const {categories, setCategories} = useContext(AppContext);
     const [searchTerm, setSearchTerm] = useState('');
+    const [deletingId, setDeletingId] = useState(null);
 
     const filteredCategories = categories.filter(category =>
         category.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const deleteByCategoryId = async (categoryId) => {
+        if (deletingId) return;
+        setDeletingId(categoryId);
         try {
             const response = await deleteCategory(categoryId);
             if (response.status === 204) {
@@ -25,7 +28,12 @@ const CategoryList = () => {
             }
         } catch (error) {
             console.error(error);
-            toast.error("Unable to delete category");
+            // A category that still has items reports a specific 409 conflict message from the
+            // backend (e.g. "Cannot delete category 'X' because 3 item(s) still reference it") -
+            // show it instead of a generic failure message.
+            toast.error(error.friendlyMessage || "Unable to delete category");
+        } finally {
+            setDeletingId(null);
         }
     }
 
@@ -64,6 +72,7 @@ const CategoryList = () => {
                                 variant="danger"
                                 size="sm"
                                 onClick={() => deleteByCategoryId(category.categoryId)}
+                                disabled={deletingId === category.categoryId}
                                 aria-label="Delete category"
                             >
                                 <i className="bi bi-trash"></i>

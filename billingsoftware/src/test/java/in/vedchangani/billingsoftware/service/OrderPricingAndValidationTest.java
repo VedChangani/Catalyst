@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.TestMoney;
 import in.vedchangani.billingsoftware.entity.ItemEntity;
 import in.vedchangani.billingsoftware.entity.OrderEntity;
 import in.vedchangani.billingsoftware.entity.UserEntity;
@@ -26,6 +27,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
@@ -52,11 +55,14 @@ class OrderPricingAndValidationTest {
     @Mock
     private RazorpayService razorpayService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
     }
 
     @AfterEach
@@ -74,6 +80,8 @@ class OrderPricingAndValidationTest {
         user.setId(id);
         user.setEmail(email);
         user.setRole("ROLE_USER");
+        user.setName("Customer " + id);
+        user.setMobile("987654321" + id);
         return user;
     }
 
@@ -83,7 +91,16 @@ class OrderPricingAndValidationTest {
                 .itemId(itemId)
                 .name(name)
                 .price(BigDecimal.valueOf(price))
+                .active(true)
+                .stockQuantity(100)
+                .reservedQuantity(0)
                 .build();
+    }
+
+    // These tests are about pricing, not inventory: every reservation/commit succeeds.
+    private void stockAlwaysAvailable() {
+        when(itemRepository.reserveStock(anyString(), anyInt())).thenReturn(1);
+        when(itemRepository.commitReservedStock(anyString(), anyInt())).thenReturn(1);
     }
 
     // ---- Server computes subtotal/tax/grandTotal from the catalog price, ignoring the client ----
@@ -93,12 +110,11 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 100.0)));
+        stockAlwaysAvailable();
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 2)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
@@ -106,17 +122,17 @@ class OrderPricingAndValidationTest {
         OrderResponse result = orderService.createOrder(request);
 
         // subtotal = 100 * 2 = 200, tax = 1% of 200 = 2, grandTotal = 202
-        assertEquals(200.0, result.getSubtotal(), 0.0001);
-        assertEquals(2.0, result.getTax(), 0.0001);
-        assertEquals(202.0, result.getGrandTotal(), 0.0001);
+        TestMoney.assertMoney("200.0", result.getSubtotal());
+        TestMoney.assertMoney("2.0", result.getTax());
+        TestMoney.assertMoney("202.0", result.getGrandTotal());
         assertEquals("Burger", result.getItems().get(0).getName());
-        assertEquals(100.0, result.getItems().get(0).getPrice(), 0.0001);
+        TestMoney.assertMoney("100.0", result.getItems().get(0).getPrice());
 
         ArgumentCaptor<OrderEntity> captor = ArgumentCaptor.forClass(OrderEntity.class);
         verify(orderEntityRepository).save(captor.capture());
-        assertEquals(200.0, captor.getValue().getSubtotal(), 0.0001);
-        assertEquals(2.0, captor.getValue().getTax(), 0.0001);
-        assertEquals(202.0, captor.getValue().getGrandTotal(), 0.0001);
+        TestMoney.assertMoney("200.0", captor.getValue().getSubtotal());
+        TestMoney.assertMoney("2.0", captor.getValue().getTax());
+        TestMoney.assertMoney("202.0", captor.getValue().getGrandTotal());
     }
 
     // ---- Multiple lines are summed correctly ----
@@ -127,12 +143,11 @@ class OrderPricingAndValidationTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 100.0)));
         when(itemRepository.findByItemId("ITEM2")).thenReturn(Optional.of(anItem("ITEM2", "Fries", 50.0)));
+        stockAlwaysAvailable();
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(
                         new OrderRequest.OrderItemRequest("ITEM1", 1),
                         new OrderRequest.OrderItemRequest("ITEM2", 3)))
@@ -142,9 +157,9 @@ class OrderPricingAndValidationTest {
         OrderResponse result = orderService.createOrder(request);
 
         // subtotal = (100*1) + (50*3) = 250, tax = 2.5, grandTotal = 252.5
-        assertEquals(250.0, result.getSubtotal(), 0.0001);
-        assertEquals(2.5, result.getTax(), 0.0001);
-        assertEquals(252.5, result.getGrandTotal(), 0.0001);
+        TestMoney.assertMoney("250.0", result.getSubtotal());
+        TestMoney.assertMoney("2.5", result.getTax());
+        TestMoney.assertMoney("252.5", result.getGrandTotal());
     }
 
     // ---- Client-supplied price/tax/total on the request are ignored (request has no such fields) ----
@@ -158,20 +173,22 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", "Burger", 9.99)));
+        stockAlwaysAvailable();
         when(orderEntityRepository.save(any(OrderEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 1)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
 
         OrderResponse result = orderService.createOrder(request);
 
-        assertEquals(9.99, result.getSubtotal(), 0.0001);
-        assertEquals(9.99 * 0.01, result.getTax(), 0.0001);
+        TestMoney.assertMoney("9.99", result.getSubtotal());
+        // 1% of 9.99 is 0.0999; money is kept in whole paise, so tax is rounded HALF_UP to 0.10
+        // (previously a double 0.0999 was stored while 0.10 was displayed and charged).
+        TestMoney.assertMoney("0.10", result.getTax());
+        TestMoney.assertMoney("10.09", result.getGrandTotal());
     }
 
     // ---- Empty cart is rejected ----
@@ -180,8 +197,6 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of())
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
@@ -196,8 +211,6 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(null)
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
@@ -212,8 +225,6 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 0)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
@@ -228,8 +239,6 @@ class OrderPricingAndValidationTest {
         authenticateAs("alice@example.com");
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", -1)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
@@ -245,8 +254,6 @@ class OrderPricingAndValidationTest {
         when(itemRepository.findByItemId("GHOST")).thenReturn(Optional.empty());
 
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("GHOST", 1)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();

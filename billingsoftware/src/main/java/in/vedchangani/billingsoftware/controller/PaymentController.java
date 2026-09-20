@@ -7,11 +7,10 @@ import in.vedchangani.billingsoftware.io.PaymentVerificationRequest;
 import in.vedchangani.billingsoftware.io.RazorpayOrderResponse;
 import in.vedchangani.billingsoftware.service.OrderService;
 import in.vedchangani.billingsoftware.service.RazorpayService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/payments")
@@ -23,37 +22,18 @@ public class PaymentController {
 
     // Amount is resolved server-side from the local order's grandTotal (see
     // RazorpayServiceImpl) - the client only identifies which local order this payment is for.
-    // Validation failures (unknown order, wrong owner, wrong order status) are translated to a
-    // clean response rather than leaking as a 500, consistent with OrderController.
+    // Validation/business-rule failures (unknown order, wrong owner, wrong order status) are
+    // mapped to their HTTP status by GlobalExceptionHandler (400/403/404/409 respectively).
     @PostMapping("/create-order")
     @ResponseStatus(HttpStatus.CREATED)
-    public RazorpayOrderResponse createRazorpayOrder(@RequestBody PaymentRequest request) throws RazorpayException {
-        try {
-            return razorpayService.createOrder(request.getOrderId(), request.getCurrency());
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
-        } catch (AccessDeniedException ex) {
-            // Not a validation failure - let normal auth handling apply (403).
-            throw ex;
-        } catch (RuntimeException ex) {
-            // Thrown by RazorpayServiceImpl when the orderId doesn't match a local order.
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
-        }
+    public RazorpayOrderResponse createRazorpayOrder(@Valid @RequestBody PaymentRequest request) throws RazorpayException {
+        return razorpayService.createOrder(request.getOrderId(), request.getCurrency());
     }
 
-    // Verification failures are translated the same way create-order failures are. Note that a
-    // bad signature surfaces as a plain 400 with a generic message: nothing about the secret,
-    // the expected signature, or which specific check failed is returned to the caller.
+    // A bad signature surfaces as a plain 400/409 with a generic message: nothing about the
+    // secret, the expected signature, or which specific check failed is returned to the caller.
     @PostMapping("/verify")
-    public OrderResponse verifyPayment(@RequestBody PaymentVerificationRequest request) {
-        try {
-            return orderService.verifyPayment(request);
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
-        } catch (AccessDeniedException ex) {
-            throw ex;
-        } catch (RuntimeException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
-        }
+    public OrderResponse verifyPayment(@Valid @RequestBody PaymentVerificationRequest request) {
+        return orderService.verifyPayment(request);
     }
 }

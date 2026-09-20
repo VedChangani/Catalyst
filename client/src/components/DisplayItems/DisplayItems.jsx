@@ -37,6 +37,9 @@ const DisplayItems = ({selectedCategory}) => {
                             itemImage={item.imgUrl}
                             itemId={item.itemId}
                             categoryName={item.categoryName}
+                            active={item.active}
+                            availableQuantity={item.availableQuantity}
+                            lowStockThreshold={item.lowStockThreshold}
                         />
                     ))}
                 </div>

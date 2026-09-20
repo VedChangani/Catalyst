@@ -1,68 +1,66 @@
 import {useContext, useEffect, useState} from "react";
-import {latestOrders, myOrders} from "../../Service/OrderService.js";
+import {useNavigate} from "react-router-dom";
+import {myOrders} from "../../Service/OrderService.js";
 import {AppContext} from "../../context/AppContext.jsx";
 import PageShell from "../../ui/PageShell.jsx";
 import PageHeader from "../../ui/PageHeader.jsx";
 import LoadingState from "../../ui/LoadingState.jsx";
 import EmptyState from "../../ui/EmptyState.jsx";
 import Badge from "../../ui/Badge.jsx";
+import Button from "../../ui/Button.jsx";
+import AdminOrders from "./AdminOrders.jsx";
+import {
+    channelLabel,
+    channelTone,
+    formatDate,
+    orderStatusTone,
+    paymentStatusTone,
+    statusLabel
+} from "../../util/orderFormat.js";
 
-const OrderHistory = () => {
-    const {auth} = useContext(AppContext);
-    const isAdmin = auth?.role === "ROLE_ADMIN";
-
+// The customer's unified purchase history: online orders and in-store (POS) purchases that a
+// cashier linked to this account. The backend returns exactly that list (newest first, all of it,
+// no pagination); walk-in POS sales are never part of it. Admins get the order-management list.
+const MyOrders = () => {
+    const navigate = useNavigate();
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(null);
+    const [reloadToken, setReloadToken] = useState(0);
 
     useEffect(() => {
-        const fetchOrders = async () => {
-            try {
-                // Admins see every order placed in the system; regular users only ever
-                // see their own orders (enforced backend-side, not just here).
-                const response = isAdmin ? await latestOrders() : await myOrders();
-                setOrders(response.data);
-            } catch (error) {
-                console.log(error);
-            } finally {
-                setLoading(false);
-            }
-        }
-        fetchOrders();
-    }, [isAdmin]);
+        const controller = new AbortController();
+        setLoading(true);
+        setLoadError(null);
+        // Only the caller's own orders; ownership is enforced backend-side, not just here.
+        myOrders(controller.signal)
+            .then((response) => setOrders(Array.isArray(response.data) ? response.data : []))
+            .catch((error) => {
+                if (error.code === "ERR_CANCELED") {
+                    return;
+                }
+                console.error(error);
+                setLoadError(error.friendlyMessage || "Unable to load orders");
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) {
+                    setLoading(false);
+                }
+            });
+        return () => controller.abort();
+    }, [reloadToken]);
 
     const formatItems = (items) => {
-        return items.map((item) => `${item.name} x ${item.quantity}`).join(', ');
+        return (items || []).map((item) => `${item.name} x ${item.quantity}`).join(', ');
     }
 
-    const formatDate = (dateString) => {
-        const options = {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        }
-        return new Date(dateString).toLocaleDateString('en-US', options);
-    }
-
-    const orderStatusTone = (status) => {
-        switch (status) {
-            case "PAID": return "success";
-            case "PENDING_PAYMENT": return "warning";
-            case "PAYMENT_FAILED": return "danger";
-            case "CANCELLED": return "muted";
-            default: return "muted";
-        }
-    };
-
-    const paymentStatusTone = (status) => {
-        switch (status) {
-            case "COMPLETED": return "success";
-            case "PENDING": return "warning";
-            case "FAILED": return "danger";
-            default: return "muted";
-        }
-    };
+    const header = (
+        <PageHeader
+            kicker="Sales"
+            title="My Orders"
+            description="Your purchases, online and in store, with payment status."
+        />
+    );
 
     if (loading) {
         return (
@@ -72,14 +70,27 @@ const OrderHistory = () => {
         );
     }
 
+    if (loadError) {
+        return (
+            <PageShell wide>
+                {header}
+                <EmptyState
+                    title="Couldn't load orders"
+                    description={loadError}
+                    action={
+                        <Button variant="dark" size="sm" onClick={() => setReloadToken((token) => token + 1)}>
+                            Try again
+                        </Button>
+                    }
+                />
+            </PageShell>
+        );
+    }
+
     if (orders.length === 0) {
         return (
             <PageShell wide>
-                <PageHeader
-                    kicker="Sales"
-                    title={isAdmin ? "All Orders" : "My Orders"}
-                    description="Closed bills and payment status for this counter."
-                />
+                {header}
                 <EmptyState title="No orders found" description="Completed checkouts will show up in this ledger." />
             </PageShell>
         );
@@ -87,33 +98,28 @@ const OrderHistory = () => {
 
     return (
         <PageShell wide>
-            <PageHeader
-                kicker="Sales"
-                title={isAdmin ? "All Orders" : "My Orders"}
-                description="Closed bills and payment status for this counter."
-            />
+            {header}
             <div className="overflow-x-auto border-2 border-ink bg-surface shadow-[3px_3px_0_#111827]">
                 <table className="nb-table min-w-[960px]">
                     <thead>
                     <tr>
                         <th>Order Id</th>
-                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Channel</th>
                         <th>Items</th>
                         <th>Total</th>
                         <th>Payment</th>
                         <th>Order Status</th>
                         <th>Payment Status</th>
-                        <th>Date</th>
+                        <th><span className="sr-only">Actions</span></th>
                     </tr>
                     </thead>
                     <tbody>
                     {orders.map(order => (
                         <tr key={order.orderId}>
                             <td className="font-bold">{order.orderId}</td>
-                            <td>
-                                {order.customerName} <br/>
-                                <small className="text-muted">{order.phoneNumber}</small>
-                            </td>
+                            <td>{formatDate(order.createdAt)}</td>
+                            <td><Badge tone={channelTone(order.salesChannel)}>{channelLabel(order.salesChannel)}</Badge></td>
                             <td className="max-w-xs">{formatItems(order.items)}</td>
                             <td className="text-lg font-extrabold">₹{order.grandTotal}</td>
                             <td>
@@ -123,7 +129,7 @@ const OrderHistory = () => {
                             </td>
                             <td>
                                 <Badge tone={orderStatusTone(order.orderStatus)}>
-                                    {(order.orderStatus || "").replace("_", " ")}
+                                    {statusLabel(order.orderStatus)}
                                 </Badge>
                             </td>
                             <td>
@@ -131,7 +137,16 @@ const OrderHistory = () => {
                                     {order.paymentStatus || "UNKNOWN"}
                                 </Badge>
                             </td>
-                            <td>{formatDate(order.createdAt)}</td>
+                            <td>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => navigate(`/orders/${encodeURIComponent(order.orderId)}`)}
+                                    aria-label={`View order ${order.orderId}`}
+                                >
+                                    View
+                                </Button>
+                            </td>
                         </tr>
                     ))}
                     </tbody>
@@ -139,6 +154,11 @@ const OrderHistory = () => {
             </div>
         </PageShell>
     )
+}
+
+const OrderHistory = () => {
+    const {auth} = useContext(AppContext);
+    return auth?.role === "ROLE_ADMIN" ? <AdminOrders /> : <MyOrders />;
 }
 
 export default OrderHistory;

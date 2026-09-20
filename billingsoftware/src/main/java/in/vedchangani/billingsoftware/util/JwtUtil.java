@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.util;
 
+import in.vedchangani.billingsoftware.service.impl.AppUserPrincipal;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -18,9 +19,22 @@ public class JwtUtil {
     @Value("${jwt.secret.key}")
     private String SECRET_KEY;
 
+    // Claim holding the account's token version at issue time (see UserEntity.tokenVersion).
+    static final String TOKEN_VERSION_CLAIM = "tokenVersion";
+
     public String generateToken(UserDetails userDetails) {
         Map<String, Object> claiams = new HashMap<>();
+        if (userDetails instanceof AppUserPrincipal principal) {
+            claiams.put(TOKEN_VERSION_CLAIM, principal.getTokenVersion());
+        }
         return createToken(claiams, userDetails.getUsername());
+    }
+
+    // Tokens issued before token versions existed carry no claim; they count as version 0, so
+    // they keep working only until the account's version is first incremented.
+    public int extractTokenVersion(String token) {
+        Object version = extractAllClaims(token).get(TOKEN_VERSION_CLAIM);
+        return version instanceof Number number ? number.intValue() : 0;
     }
 
     private String createToken(Map<String, Object> claiams, String subject) {
@@ -59,6 +73,14 @@ public class JwtUtil {
 
     public Boolean validateToken(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token)
+                && hasCurrentTokenVersion(token, userDetails));
+    }
+
+    // A token is only valid for the account's current session generation. Anything other than
+    // the app's own principal (which always carries the version) is refused.
+    private boolean hasCurrentTokenVersion(String token, UserDetails userDetails) {
+        return userDetails instanceof AppUserPrincipal principal
+                && extractTokenVersion(token) == principal.getTokenVersion();
     }
 }

@@ -1,5 +1,10 @@
-import axios from "axios";
+import apiClient from "../util/apiClient.js";
 
 export const login = async (data) => {
-    return await axios.post("http://localhost:8080/api/v1.0/login", data);
+    return await apiClient.post("/login", data);
+}
+
+// Public customer self-registration. The backend always creates a ROLE_USER account.
+export const register = async (data) => {
+    return await apiClient.post("/register", data);
 }

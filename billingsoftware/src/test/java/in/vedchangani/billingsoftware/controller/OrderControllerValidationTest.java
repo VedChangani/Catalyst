@@ -1,28 +1,26 @@
 package in.vedchangani.billingsoftware.controller;
 
+import in.vedchangani.billingsoftware.io.OrderCreationResult;
 import in.vedchangani.billingsoftware.io.OrderRequest;
+import in.vedchangani.billingsoftware.io.OrderResponse;
 import in.vedchangani.billingsoftware.io.PaymentMethod;
 import in.vedchangani.billingsoftware.service.OrderService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
 /**
- * Verifies that OrderController translates the cart/item validation failures thrown by
- * OrderServiceImpl (empty cart, bad quantity, unknown itemId) into a clean 400 response,
- * matching the pattern already used by ItemController/CategoryController/UserController -
- * rather than letting them fall through as an unhandled 500. Authorization failures are
- * left untouched so normal 403 handling still applies.
+ * Verifies that OrderController simply delegates to OrderServiceImpl and lets its exceptions
+ * (empty cart, bad quantity, unknown itemId, ownership failures) propagate unchanged. Translating
+ * those exception types into the right HTTP status (400/403/404/409) is GlobalExceptionHandler's
+ * job (see GlobalExceptionHandlerTest), not the controller's.
  */
 @ExtendWith(MockitoExtension.class)
 class OrderControllerValidationTest {
@@ -34,38 +32,36 @@ class OrderControllerValidationTest {
 
     private OrderRequest aRequest() {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 1)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
     }
 
     @Test
-    void createOrder_translatesEmptyCartValidationFailureTo400() {
+    void createOrder_propagatesEmptyCartValidationFailure() {
         orderController = new OrderController(orderService);
-        when(orderService.createOrder(any())).thenThrow(new IllegalArgumentException("Cart is empty"));
+        when(orderService.createOrder(any(), any())).thenThrow(new IllegalArgumentException("Cart is empty"));
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> orderController.createOrder(aRequest()));
-        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        assertThrows(IllegalArgumentException.class, () -> orderController.createOrder(aRequest(), null));
     }
 
     @Test
-    void createOrder_translatesUnknownItemIdTo400() {
+    void createOrder_propagatesAccessDeniedException() {
         orderController = new OrderController(orderService);
-        when(orderService.createOrder(any())).thenThrow(new RuntimeException("Item not found: GHOST"));
+        when(orderService.createOrder(any(), any()))
+                .thenThrow(new AccessDeniedException("No authenticated user found"));
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
-                () -> orderController.createOrder(aRequest()));
-        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        assertThrows(AccessDeniedException.class, () -> orderController.createOrder(aRequest(), null));
     }
 
     @Test
-    void createOrder_leavesAccessDeniedExceptionUntouched() {
+    void createOrder_delegatesToService() {
         orderController = new OrderController(orderService);
-        when(orderService.createOrder(any())).thenThrow(new AccessDeniedException("No authenticated user found"));
+        when(orderService.createOrder(any(), any()))
+                .thenReturn(new OrderCreationResult(OrderResponse.builder().orderId("ORD1").build(), false));
 
-        assertThrows(AccessDeniedException.class, () -> orderController.createOrder(aRequest()));
+        orderController.createOrder(aRequest(), null);
+
+        verify(orderService).createOrder(any(), isNull());
     }
 }

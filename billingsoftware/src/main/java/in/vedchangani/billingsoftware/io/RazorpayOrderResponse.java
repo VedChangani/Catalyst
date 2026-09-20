@@ -11,7 +11,11 @@ import java.util.Date;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
+// Returned to the browser to open Razorpay Checkout. Contains only public data: never the key
+// secret. keyId is the PUBLIC key id this Razorpay order was created with - the frontend opens
+// Checkout with exactly this key, so the two can never disagree.
 public class RazorpayOrderResponse {
+    private String keyId;
     private String id;
     private String entity;
     private Integer amount;
