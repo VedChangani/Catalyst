@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (test + package)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: billingsoftware
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # Tests use the H2 "test" profile with inert placeholder values; no secrets or MySQL needed.
+      # Invoked via `sh` because mvnw is not marked executable in the repository.
+      - name: Run tests
+        run: sh ./mvnw -B test
+      - name: Package
+        run: sh ./mvnw -B -DskipTests package
+
+  frontend:
+    name: Frontend (lint + test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - name: Production build
+        run: npm run build
+        env:
+          # Public, non-secret placeholder; a production build fails without it.
+          VITE_API_BASE_URL: http://localhost:8080/api/v1.0
