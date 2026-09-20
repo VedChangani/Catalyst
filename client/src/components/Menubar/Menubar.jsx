@@ -42,7 +42,6 @@ const Menubar = () => {
             <nav className="relative mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
                 <Link to={homePathFor(auth?.role)} className="flex shrink-0 items-center gap-2">
                     <img src={assets.logo} alt="Logo" className="h-10 w-auto border-2 border-ink bg-paper p-0.5" />
-                    <span className="hidden text-sm font-extrabold uppercase tracking-[0.16em] sm:inline">Retail Billing</span>
                 </Link>
 
                 <button

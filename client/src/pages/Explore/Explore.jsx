@@ -26,8 +26,7 @@ const Explore = () => {
         <div className="mx-auto grid min-h-[calc(100vh-5.5rem)] w-full max-w-[1440px] gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:px-8">
             <section className="flex min-h-0 flex-col gap-5">
                 <div className="border-2 border-ink bg-surface p-4 shadow-[3px_3px_0_#111827] sm:p-5">
-                    <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-muted">Store floor</p>
-                    <h1 className="mt-1 text-3xl font-extrabold tracking-tight">Browse → Add to cart → Check out</h1>
+                    <h1 className="text-3xl font-extrabold tracking-tight">Select Category</h1>
                     <div className="mt-4 overflow-x-auto pb-1">
                         <DisplayCategory
                             selectedCategory={selectedCategory}
