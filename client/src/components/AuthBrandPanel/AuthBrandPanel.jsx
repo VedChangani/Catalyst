@@ -1,6 +1,6 @@
 import {assets} from "../../assets/assets.js";
 
-// Retail Billing brand panel shared by the Login and Register screens (moved verbatim from Login.jsx).
+// Catalyst brand panel shared by the Login and Register screens (moved verbatim from Login.jsx).
 const AuthBrandPanel = () => {
     return (
         <aside className="relative overflow-hidden border-b-2 border-ink bg-ink px-8 py-8 lg:border-b-0 lg:border-r-[3px] lg:px-12 lg:py-10">
@@ -235,18 +235,22 @@ const AuthBrandPanel = () => {
             <div className="relative z-10 flex h-full flex-col">
                 {/* ─ Top: Application branding ─ */}
                 <div className="flex items-center gap-3">
-                    <img src={assets.logo} alt="Retail billing logo" className="h-10 w-auto border-2 border-white/20 bg-white/10 p-1" />
-                    <span className="text-sm font-extrabold uppercase tracking-[0.2em] text-white/80">Retail Billing</span>
+                    <img
+                        src={assets.logo}
+                        alt="Catalyst"
+                        className="h-14 w-auto border-2 border-ink bg-[#FFFDF8] px-2 py-1"
+                        style={{ boxShadow: '3px 3px 0 #111827' }}
+                    />
                 </div>
 
                 {/* ─ Center: Hero editorial content ─ */}
                 <div className="mt-auto mb-6 lg:mb-0">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-primary">Billing / Operations</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-primary">Commerce / Operations</p>
                     <h1 className="mt-3 max-w-md text-5xl font-extrabold leading-[0.92] tracking-tight text-white sm:text-6xl lg:text-[4.25rem]">
-                        RETAIL<br />BILLING
+                        RETAIL<br />COMMERCE
                     </h1>
                     <p className="mt-5 max-w-[320px] text-[15px] font-medium leading-relaxed text-white/55">
-                        Build bills, track orders, and manage payments from one workspace.
+                        Shop, bill, manage inventory, track orders, and handle payments from one workspace.
                     </p>
                 </div>
 

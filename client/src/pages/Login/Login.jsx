@@ -5,7 +5,7 @@ import {Link, useNavigate} from "react-router-dom";
 import {AppContext} from "../../context/AppContext.jsx";
 import Button from "../../ui/Button.jsx";
 import Input from "../../ui/Input.jsx";
-import AuthBrandPanel from "../../components/AuthBrandPanel/AuthBrandPanel.jsx";
+import LoginBrandPanel, {CreamDecor} from "../../components/LoginBrandPanel/LoginBrandPanel.jsx";
 import {startSession} from "../../util/authSession.js";
 
 const Login = () => {
@@ -42,18 +42,29 @@ const Login = () => {
         }
     }
 
+    // lg+: a fixed-height (100vh) composition sized in vh/vw so it fits without scrolling; below lg the sections stack.
     return (
-        <div className="grid min-h-screen lg:grid-cols-[45fr_55fr]">
-            <AuthBrandPanel />
+        <div className="relative flex flex-col lg:block lg:h-[max(100vh,34rem)]" style={{"--cw": "min(34.4vw, 36rem)"}}>
+            <LoginBrandPanel />
+            <CreamDecor />
 
-            {/* ── LOGIN FORM PANEL ── warm ivory with global grid visible */}
-            <section className="flex items-center justify-center px-6 py-10 sm:px-10">
-                <div className="w-full max-w-md border-[3px] border-ink bg-surface p-8 shadow-[4px_4px_0_#111827]">
-                    <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted">Welcome back</p>
-                    <h2 className="mt-2 text-3xl font-extrabold tracking-tight">Sign in</h2>
-                    <p className="mt-2 text-muted">Sign in to continue to Retail Billing.</p>
+            {/* Cream side: the page's own grid background shows through. Decorative text only. */}
+            <p className="pointer-events-none absolute right-[5.4vw] top-[6.8vh] hidden text-[clamp(10px,1.2vh,12px)] font-bold uppercase tracking-[0.3em] text-muted/70 lg:block" aria-hidden="true">
+                Shop • Bill • Manage • Grow
+            </p>
+            <div className="pointer-events-none absolute bottom-[5.6vh] right-[5vw] hidden lg:block" aria-hidden="true">
+                <p className="border-y border-l border-primary/40 py-[1.2vh] pl-4 pr-6 text-left text-[clamp(9px,1.1vh,11px)] font-bold uppercase leading-relaxed tracking-[0.3em] text-muted/70">
+                    Retail<br />Commerce<br />Simplified
+                </p>
+            </div>
 
-                    <form className="mt-8 space-y-5" onSubmit={onSubmitHandler}>
+            {/* Login card: starts inside the dark panel and extends over the cream side (lg+) */}
+            <section className="relative z-20 flex justify-center px-5 py-10 sm:px-10 lg:absolute lg:left-[calc(68vw_-_var(--cw)*0.34)] lg:top-[calc(50%_-_16px)] lg:w-[var(--cw)] lg:-translate-y-1/2 lg:justify-start lg:p-0">
+                <div className="w-full max-w-md rounded-2xl border border-ink/10 bg-surface p-8 shadow-lg shadow-ink/10 sm:p-10 lg:max-w-none lg:px-[12.5%] lg:py-[6vh]">
+                    <h2 className="text-3xl font-extrabold tracking-tight lg:text-[clamp(1.6rem,4vh,2.4rem)] lg:leading-tight">Welcome Back</h2>
+                    <p className="mt-2 text-muted lg:mt-[1vh] lg:text-[clamp(0.9rem,2vh,1.15rem)]">Sign in to your Catalyst account</p>
+
+                    <form className="mt-9 space-y-7 lg:mt-[4.2vh] lg:space-y-[3vh]" onSubmit={onSubmitHandler}>
                         <Input
                             label="Email or Mobile"
                             type="text"
@@ -61,6 +72,7 @@ const Login = () => {
                             id="identifier"
                             autoComplete="username"
                             placeholder="yourname@example.com or 98765 43210"
+                            className="rounded-lg border-ink/20! bg-white! py-3 lg:py-[1.2vh]"
                             onChange={onChangeHandler}
                             value={data.identifier}
                         />
@@ -71,26 +83,27 @@ const Login = () => {
                             id="password"
                             autoComplete="current-password"
                             placeholder="**********"
+                            className="rounded-lg border-ink/20! bg-white! py-3 lg:py-[1.2vh]"
                             onChange={onChangeHandler}
                             value={data.password}
                         />
-                        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={loading}>
-                            {loading ? "Signing in..." : "Sign in"}
+                        <Button type="submit" variant="primary" size="lg" className="w-full rounded-lg border-primary! py-3.5 shadow-none! lg:py-[1.6vh]" disabled={loading}>
+                            {loading ? "Signing in..." : <>Sign in <i className="bi bi-arrow-right" aria-hidden="true"></i></>}
                         </Button>
                     </form>
 
-                    <p className="mt-6 text-sm font-semibold text-muted">
+                    <div className="mt-7 flex items-center gap-4 text-sm text-muted lg:mt-[3.6vh]" aria-hidden="true">
+                        <div className="h-px flex-1 bg-ink/15" />
+                        or
+                        <div className="h-px flex-1 bg-ink/15" />
+                    </div>
+
+                    <p className="mt-5 text-center text-sm font-semibold text-muted lg:mt-[2.4vh]">
                         New customer?{" "}
-                        <Link to="/register" className="font-extrabold text-primary underline underline-offset-2">
+                        <Link to="/register" className="font-extrabold text-primary hover:underline underline-offset-2">
                             Create an account
                         </Link>
                     </p>
-
-                    {/* Small coral accent line */}
-                    <div className="mt-6 flex items-center gap-2">
-                        <div className="h-0.5 w-8 bg-coral" />
-                        <span className="text-xs font-bold text-muted">Secure access</span>
-                    </div>
                 </div>
             </section>
         </div>
