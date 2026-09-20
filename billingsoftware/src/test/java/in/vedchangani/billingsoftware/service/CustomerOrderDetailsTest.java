@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.TestMoney;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import in.vedchangani.billingsoftware.entity.CategoryEntity;
@@ -87,7 +88,7 @@ class CustomerOrderDetailsTest {
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
-                .role(role).name(name).build());
+                .role(role).name(name).mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
     }
 
     // Seeds an order directly, with a fixed orderId/createdAt (the entity's @PrePersist would
@@ -95,10 +96,10 @@ class CustomerOrderDetailsTest {
     private OrderEntity seed(UserEntity customer, UserEntity createdBy, SalesChannel channel,
                              LocalDateTime createdAt, String customerName, String phone) {
         List<OrderItemEntity> lines = new ArrayList<>();
-        lines.add(OrderItemEntity.builder().itemId(coffee.getItemId()).name("Coffee").price(100.0).quantity(3).build());
+        lines.add(OrderItemEntity.builder().itemId(coffee.getItemId()).name("Coffee").price(new BigDecimal("100.0")).quantity(3).build());
         OrderEntity order = orderEntityRepository.save(OrderEntity.builder()
                 .customerName(customerName).phoneNumber(phone)
-                .subtotal(300.0).tax(3.0).grandTotal(303.0)
+                .subtotal(new BigDecimal("300.0")).tax(new BigDecimal("3.0")).grandTotal(new BigDecimal("303.0"))
                 .paymentMethod(PaymentMethod.CASH).orderStatus(OrderStatus.PAID)
                 .paymentDetails(PaymentDetails.builder().status(PaymentDetails.PaymentStatus.COMPLETED).build())
                 .items(lines).user(customer).createdBy(createdBy).salesChannel(channel)
@@ -299,9 +300,9 @@ class CustomerOrderDetailsTest {
     void detail_leavesPersistedTotalsUntouched_andReportsThem() throws Exception {
         String orderId = createOnlineOrder(customerA, "CASH");
         OrderEntity before = orderEntityRepository.findByOrderId(orderId).orElseThrow();
-        double subtotal = before.getSubtotal();
-        double tax = before.getTax();
-        double grand = before.getGrandTotal();
+        BigDecimal subtotal = before.getSubtotal();
+        BigDecimal tax = before.getTax();
+        BigDecimal grand = before.getGrandTotal();
 
         ItemEntity current = itemRepository.findByItemId(coffee.getItemId()).orElseThrow();
         current.setPrice(BigDecimal.valueOf(999));
@@ -309,14 +310,14 @@ class CustomerOrderDetailsTest {
 
         JsonNode body = detail(customerA, before);
 
-        assertEquals(subtotal, body.get("subtotal").asDouble(), 0.0001);
-        assertEquals(tax, body.get("tax").asDouble(), 0.0001);
-        assertEquals(grand, body.get("grandTotal").asDouble(), 0.0001);
-        assertEquals(200.0, subtotal, 0.0001);
+        TestMoney.assertMoney(subtotal.toPlainString(), body.get("subtotal").decimalValue());
+        TestMoney.assertMoney(tax.toPlainString(), body.get("tax").decimalValue());
+        TestMoney.assertMoney(grand.toPlainString(), body.get("grandTotal").decimalValue());
+        TestMoney.assertMoney("200.00", subtotal);
         OrderEntity after = orderEntityRepository.findByOrderId(orderId).orElseThrow();
-        assertEquals(subtotal, after.getSubtotal(), 0.0001);
-        assertEquals(tax, after.getTax(), 0.0001);
-        assertEquals(grand, after.getGrandTotal(), 0.0001);
+        TestMoney.assertMoney(subtotal.toPlainString(), after.getSubtotal());
+        TestMoney.assertMoney(tax.toPlainString(), after.getTax());
+        TestMoney.assertMoney(grand.toPlainString(), after.getGrandTotal());
     }
 
     @Test
@@ -397,7 +398,7 @@ class CustomerOrderDetailsTest {
     void sameCustomer_seesOnlineAndPosPurchasesTogether_viaRealCreationFlows() throws Exception {
         String online = createOnlineOrder(customerA, "CASH");
         String pos = createPosOrder(cashier, "CASHIER", customerA, "CASH");
-        createPosOrder(admin, "ADMIN", null, "CASH"); // walk-in: must not appear
+        createPosOrder(cashier, "CASHIER", null, "CASH"); // walk-in: must not appear
 
         JsonNode history = json(getAs(customerA, "USER", "/orders/my-orders", 200));
 

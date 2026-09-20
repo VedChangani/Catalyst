@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.TestMoney;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import in.vedchangani.billingsoftware.entity.CategoryEntity;
@@ -99,7 +100,7 @@ class RetailChannelIntegrationTest {
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
-                .role(role).name(name).build());
+                .role(role).name(name).mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
     }
 
     private void authenticateAs(UserEntity user) {
@@ -196,23 +197,84 @@ class RetailChannelIntegrationTest {
         assertNull(response.get("createdBy").get("email"));
         assertNull(response.get("createdBy").get("password"));
         // shared billing logic: authoritative price/tax/total and CASH commits stock
-        assertEquals(20.0, order.getSubtotal(), 0.0001);
-        assertEquals(0.2, order.getTax(), 0.0001);
-        assertEquals(20.2, order.getGrandTotal(), 0.0001);
+        TestMoney.assertMoney("20.0", order.getSubtotal());
+        TestMoney.assertMoney("0.2", order.getTax());
+        TestMoney.assertMoney("20.2", order.getGrandTotal());
         assertEquals(OrderStatus.PAID, order.getOrderStatus());
         assertEquals(98, reloadItem().getStockQuantity());
         assertEquals(0, reloadItem().getReservedQuantity());
     }
 
     @Test
-    void posOrder_byAdmin_isRecordedAgainstAdmin() throws Exception {
+    void posOrder_byAdmin_isForbidden_andNothingIsCreatedOrReserved() throws Exception {
         String body = "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
 
-        OrderEntity order = storedOrder(postJson("/pos/orders", admin, "ADMIN", body, 201));
+        postJson("/pos/orders", admin, "ADMIN", body, 403);
 
-        assertEquals(SalesChannel.POS, order.getSalesChannel());
-        assertEquals(admin.getId(), order.getCreatedBy().getId());
-        assertNull(order.getUser());
+        assertEquals(0, orderEntityRepository.count());
+        assertEquals(100, reloadItem().getStockQuantity());
+        assertEquals(0, reloadItem().getReservedQuantity());
+    }
+
+    @Test
+    void posOrder_byAdmin_isRefusedByTheServiceToo_notOnlyByTheUrlRule() {
+        authenticateAs(admin);
+        PosOrderRequest request = PosOrderRequest.builder().paymentMethod("CASH")
+                .cartItems(List.of(new OrderRequest.OrderItemRequest(item.getItemId(), 1))).build();
+
+        assertThrows(AccessDeniedException.class, () -> orderService.createPosOrder(request));
+        assertEquals(0, orderEntityRepository.count());
+    }
+
+    @Test
+    void posCustomerLookup_isCashierOnly() throws Exception {
+        mockMvc.perform(get("/pos/customers").param("search", "ab").with(user(cashier.getEmail()).roles("CASHIER")))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/pos/customers").param("search", "ab").with(user(admin.getEmail()).roles("ADMIN")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/pos/customers").param("search", "ab").with(user(customerA.getEmail()).roles("USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void mySales_listsOnlyTheCallingCashiersOwnPosOrders() throws Exception {
+        String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
+        String mine = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
+        String theirs = postJson("/pos/orders", otherCashier, "CASHIER", body, 201).get("orderId").asText();
+        String online = postJson("/orders", customerA, "USER",
+                "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}", 201).get("orderId").asText();
+
+        MvcResult result = mockMvc.perform(get("/pos/sales").with(user(cashier.getEmail()).roles("CASHIER")))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode sales = objectMapper.readTree(result.getResponse().getContentAsString());
+
+        assertEquals(1, sales.size());
+        assertEquals(mine, sales.get(0).get("orderId").asText());
+        String raw = result.getResponse().getContentAsString();
+        assertFalse(raw.contains(theirs));
+        assertFalse(raw.contains(online));
+        // an admin, a customer (even the one linked to the sale) and anonymous callers are refused
+        mockMvc.perform(get("/pos/sales").with(user(admin.getEmail()).roles("ADMIN"))).andExpect(status().isForbidden());
+        mockMvc.perform(get("/pos/sales").with(user(customerA.getEmail()).roles("USER"))).andExpect(status().isForbidden());
+        mockMvc.perform(get("/pos/sales")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void admin_stillSeesPosOrders_includingHistoricalAdminCreatedOnes_inAllOrders() throws Exception {
+        String body = "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
+        String cashierSale = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
+        // a POS sale an admin entered back when admins were still allowed to
+        String historical = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
+        OrderEntity legacy = orderEntityRepository.findByOrderId(historical).orElseThrow();
+        legacy.setCreatedBy(admin);
+        orderEntityRepository.save(legacy);
+
+        MvcResult result = mockMvc.perform(get("/admin/orders").with(user(admin.getEmail()).roles("ADMIN")))
+                .andExpect(status().isOk()).andReturn();
+        String raw = result.getResponse().getContentAsString();
+
+        assertTrue(raw.contains(cashierSale));
+        assertTrue(raw.contains(historical));
     }
 
     @Test
@@ -226,6 +288,94 @@ class RetailChannelIntegrationTest {
         assertEquals(cashier.getId(), order.getCreatedBy().getId());
         assertEquals(SalesChannel.POS, order.getSalesChannel());
         assertEquals(customerA.getName(), order.getCustomerName());
+    }
+
+    @Test
+    void posOrder_forRegisteredCustomer_isReportedToTheCashierAsThatCustomer_notWalkIn() throws Exception {
+        String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
+
+        JsonNode created = postJson("/pos/orders", cashier, "CASHIER", body, 201);
+
+        // creation response, snapshot and the DB row all identify the selected customer
+        assertEquals(customerA.getUserId(), created.get("customer").get("userId").asText());
+        assertEquals(customerA.getName(), created.get("customerName").asText());
+        assertEquals(customerA.getMobile(), created.get("phoneNumber").asText());
+        assertNull(created.get("customer").get("password"));
+        OrderEntity order = storedOrder(created);
+        assertEquals(customerA.getName(), order.getCustomerName());
+        assertEquals(customerA.getMobile(), order.getPhoneNumber());
+
+        // My Sales (what the cashier screen renders) carries the same identity
+        authenticateAs(cashier);
+        OrderResponse sale = inSession(orderService::getMySales).stream()
+                .filter(o -> o.getOrderId().equals(order.getOrderId())).findFirst().orElseThrow();
+        assertNotNull(sale.getCustomer());
+        assertEquals(customerA.getUserId(), sale.getCustomer().getUserId());
+        assertEquals(customerA.getName(), sale.getCustomerName());
+    }
+
+    @Test
+    void posOrder_typedBillingDetails_areKeptAsSnapshot_evenForARegisteredCustomer() throws Exception {
+        String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"customerName\":\"Typed Name\",\"phoneNumber\":\"9999999999\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
+
+        OrderEntity order = storedOrder(postJson("/pos/orders", cashier, "CASHIER", body, 201));
+
+        assertEquals(customerA.getId(), order.getUser().getId());
+        assertEquals("Typed Name", order.getCustomerName());
+        assertEquals("9999999999", order.getPhoneNumber());
+    }
+
+    @Test
+    void walkInPosOrder_isReportedWithNoCustomer() throws Exception {
+        String body = "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
+
+        JsonNode created = postJson("/pos/orders", cashier, "CASHIER", body, 201);
+
+        assertNull(storedOrder(created).getUser());
+        assertTrue(created.get("customer") == null || created.get("customer").isNull());
+    }
+
+    // The two POS customer modes must stay distinguishable in the SAME My Sales list: a sale made
+    // for an explicitly selected customer identifies that customer, a genuine walk-in carries no
+    // customer at all. Neither mode may collapse into the other.
+    @Test
+    void mySales_distinguishesARegisteredSaleFromAGenuineWalkIn() throws Exception {
+        String registered = postJson("/pos/orders", cashier, "CASHIER",
+                "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}",
+                201).get("orderId").asText();
+        String walkIn = postJson("/pos/orders", cashier, "CASHIER",
+                "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}", 201).get("orderId").asText();
+
+        // the persisted rows are what My Sales must reflect
+        assertEquals(customerA.getId(), orderEntityRepository.findByOrderId(registered).orElseThrow().getUser().getId());
+        assertNull(orderEntityRepository.findByOrderId(walkIn).orElseThrow().getUser());
+
+        authenticateAs(cashier);
+        List<OrderResponse> sales = inSession(orderService::getMySales);
+        OrderResponse registeredSale = sales.stream()
+                .filter(o -> o.getOrderId().equals(registered)).findFirst().orElseThrow();
+        OrderResponse walkInSale = sales.stream()
+                .filter(o -> o.getOrderId().equals(walkIn)).findFirst().orElseThrow();
+
+        assertNotNull(registeredSale.getCustomer());
+        assertEquals(customerA.getUserId(), registeredSale.getCustomer().getUserId());
+        assertEquals(customerA.getName(), registeredSale.getCustomer().getName());
+        assertNull(walkInSale.getCustomer());
+        assertEquals(cashier.getUserId(), walkInSale.getCreatedBy().getUserId());
+        assertEquals(SalesChannel.POS, walkInSale.getSalesChannel());
+    }
+
+    @Test
+    void registeredPosOrder_isVisibleToItsCustomer_butNotToAnotherCustomerOrCashier() throws Exception {
+        String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
+        String orderId = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
+
+        authenticateAs(customerA);
+        assertEquals(orderId, inSession(() -> orderService.getMyOrder(orderId)).getOrderId());
+        authenticateAs(customerB);
+        assertThrows(AccessDeniedException.class, () -> inSession(() -> orderService.getMyOrder(orderId)));
+        authenticateAs(otherCashier);
+        assertThrows(AccessDeniedException.class, () -> inSession(() -> orderService.getMyOrder(orderId)));
     }
 
     @Test
@@ -349,7 +499,7 @@ class RetailChannelIntegrationTest {
     void legacyOrderWithNullChannelAndCreator_remainsReadable() {
         orderEntityRepository.save(OrderEntity.builder()
                 .customerName("Legacy").phoneNumber("7777777777")
-                .subtotal(10.0).tax(0.1).grandTotal(10.1)
+                .subtotal(new BigDecimal("10.0")).tax(new BigDecimal("0.1")).grandTotal(new BigDecimal("10.1"))
                 .paymentMethod(PaymentMethod.CASH).orderStatus(OrderStatus.PAID)
                 .user(customerA).build());
 
@@ -409,7 +559,11 @@ class RetailChannelIntegrationTest {
     @Test
     void adminCreatedPosOrder_isManagedByThatAdminOnly() throws Exception {
         String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"UPI\",\"cartItems\":" + cart() + "}";
-        String orderId = postJson("/pos/orders", admin, "ADMIN", body, 201).get("orderId").asText();
+        // historical order: entered by an admin before admins lost POS creation
+        String orderId = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
+        OrderEntity legacy = orderEntityRepository.findByOrderId(orderId).orElseThrow();
+        legacy.setCreatedBy(admin);
+        orderEntityRepository.save(legacy);
 
         authenticateAs(customerA);
         assertThrows(AccessDeniedException.class, () -> orderService.cancelOrder(orderId));
@@ -511,7 +665,7 @@ class RetailChannelIntegrationTest {
                 .andExpect(status().isBadRequest());
 
         MvcResult result = mockMvc.perform(get("/pos/customers").param("search", "%%")
-                        .with(user(admin.getEmail()).roles("ADMIN")))
+                        .with(user(cashier.getEmail()).roles("CASHIER")))
                 .andExpect(status().isOk()).andReturn();
         assertEquals(0, objectMapper.readTree(result.getResponse().getContentAsString()).size());
     }

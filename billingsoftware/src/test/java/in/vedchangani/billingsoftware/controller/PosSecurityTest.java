@@ -94,12 +94,12 @@ class PosSecurityTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    void admin_canCreatePosOrderAndLookUpCustomers() throws Exception {
-        when(orderService.createPosOrder(any(), any())).thenReturn(created());
-
+    void admin_cannotCreatePosOrder_orUsePosCustomerLookup_orReadPosSales() throws Exception {
         mockMvc.perform(post("/pos/orders").contentType(MediaType.APPLICATION_JSON).content(POS_BODY))
-                .andExpect(status().isCreated());
-        mockMvc.perform(get("/pos/customers").param("search", "ab")).andExpect(status().isOk());
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/pos/customers").param("search", "ab")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/pos/sales")).andExpect(status().isForbidden());
+        verifyNoInteractions(orderService, userService);
     }
 
     @Test
@@ -135,7 +135,8 @@ class PosSecurityTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/dashboard")).andExpect(status().isForbidden());
         mockMvc.perform(get("/orders/latest")).andExpect(status().isForbidden());
-        mockMvc.perform(delete("/orders/ORD1")).andExpect(status().isForbidden());
+        // orders cannot be hard-deleted by anyone any more (A9): the route has no DELETE handler
+        mockMvc.perform(delete("/orders/ORD1")).andExpect(status().isMethodNotAllowed());
         verifyNoInteractions(userService, itemService);
     }
 
@@ -173,13 +174,12 @@ class PosSecurityTest {
         mockMvc.perform(post("/orders").contentType(MediaType.APPLICATION_JSON).content(ONLINE_BODY))
                 .andExpect(status().isCreated());
         mockMvc.perform(get("/admin/users")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/cashiers")).andExpect(status().isForbidden());
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
     void admin_stillReachesAdminEndpoints() throws Exception {
-        when(userService.readUsers()).thenReturn(List.of());
-
-        mockMvc.perform(get("/admin/users")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/cashiers")).andExpect(status().isOk());
     }
 }

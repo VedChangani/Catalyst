@@ -60,7 +60,7 @@ class OrderIdentityAndPaymentInvariantsTest {
         String s = UUID.randomUUID().toString().substring(0, 8);
         customer = userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email("inv-" + s + "@example.com")
-                .password("not-used").role("ROLE_USER").name("Invariant Customer").build());
+                .password("not-used").role("ROLE_USER").name("Invariant Customer").mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
         CategoryEntity category = categoryRepository.save(CategoryEntity.builder()
                 .categoryId("inv-cat-" + s).name("Invariants " + s).build());
         item = itemRepository.save(ItemEntity.builder()
@@ -84,7 +84,6 @@ class OrderIdentityAndPaymentInvariantsTest {
 
     private OrderRequest request(String paymentMethod) {
         return OrderRequest.builder()
-                .customerName("Invariant Customer").phoneNumber("9999999999")
                 .paymentMethod(paymentMethod)
                 .cartItems(List.of(new OrderRequest.OrderItemRequest(item.getItemId(), 1)))
                 .build();
@@ -97,7 +96,7 @@ class OrderIdentityAndPaymentInvariantsTest {
     private OrderEntity bareOrder(PaymentDetails paymentDetails) {
         return OrderEntity.builder()
                 .customerName("X").phoneNumber("9999999999")
-                .subtotal(10.0).tax(0.1).grandTotal(10.1)
+                .subtotal(new BigDecimal("10.0")).tax(new BigDecimal("0.1")).grandTotal(new BigDecimal("10.1"))
                 .paymentMethod(PaymentMethod.UPI).orderStatus(OrderStatus.PENDING_PAYMENT)
                 .paymentDetails(paymentDetails).inventoryReserved(false).user(customer)
                 .build();

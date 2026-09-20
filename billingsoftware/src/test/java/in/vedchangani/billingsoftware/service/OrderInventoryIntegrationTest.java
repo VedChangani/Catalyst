@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.TestMoney;
 import in.vedchangani.billingsoftware.entity.CategoryEntity;
 import in.vedchangani.billingsoftware.entity.ItemEntity;
 import in.vedchangani.billingsoftware.entity.OrderEntity;
@@ -70,7 +71,7 @@ class OrderInventoryIntegrationTest {
                 .email("inventory-it-" + suffix + "@example.com")
                 .password("not-used")
                 .role("ROLE_USER")
-                .name("Inventory IT")
+                .name("Inventory IT").mobile(in.vedchangani.billingsoftware.TestMobiles.next())
                 .build());
         category = categoryRepository.save(CategoryEntity.builder()
                 .categoryId("inv-it-cat-" + suffix)
@@ -110,8 +111,6 @@ class OrderInventoryIntegrationTest {
 
     private OrderRequest aRequest(String paymentMethod, OrderRequest.OrderItemRequest... lines) {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod(paymentMethod)
                 .cartItems(Arrays.asList(lines))
                 .build();
@@ -134,7 +133,7 @@ class OrderInventoryIntegrationTest {
         OrderEntity order = orderEntityRepository.save(OrderEntity.builder()
                 .customerName("Earlier Customer")
                 .phoneNumber("8888888888")
-                .subtotal(10.0).tax(0.1).grandTotal(10.1)
+                .subtotal(new BigDecimal("10.0")).tax(new BigDecimal("0.1")).grandTotal(new BigDecimal("10.1"))
                 .paymentMethod(PaymentMethod.UPI)
                 .orderStatus(OrderStatus.PENDING_PAYMENT)
                 .paymentDetails(PaymentDetails.builder().status(PaymentDetails.PaymentStatus.PENDING).build())
@@ -151,7 +150,7 @@ class OrderInventoryIntegrationTest {
 
     private OrderItemEntity orderLine(ItemEntity item, int quantity) {
         return OrderItemEntity.builder()
-                .itemId(item.getItemId()).name(item.getName()).price(10.0).quantity(quantity)
+                .itemId(item.getItemId()).name(item.getName()).price(new BigDecimal("10.0")).quantity(quantity)
                 .build();
     }
 
@@ -272,7 +271,7 @@ class OrderInventoryIntegrationTest {
 
         assertEquals(1, response.getItems().size());
         assertEquals(5, response.getItems().get(0).getQuantity());
-        assertEquals(50.0, response.getSubtotal(), 0.0001);
+        TestMoney.assertMoney("50.0", response.getSubtotal());
         ItemEntity after = reload(burger);
         assertEquals(5, after.getStockQuantity());
         assertEquals(0, after.getReservedQuantity());

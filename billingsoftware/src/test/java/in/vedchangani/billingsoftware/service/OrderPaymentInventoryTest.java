@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -49,12 +50,15 @@ class OrderPaymentInventoryTest {
     @Mock
     private RazorpayService razorpayService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderServiceImpl orderService;
     private UserEntity alice;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
         alice = new UserEntity();
         alice.setId(1L);
         alice.setEmail("alice@example.com");
@@ -70,7 +74,7 @@ class OrderPaymentInventoryTest {
     }
 
     private OrderItemEntity line(String itemId, int quantity) {
-        return OrderItemEntity.builder().itemId(itemId).name(itemId).price(10.0).quantity(quantity).build();
+        return OrderItemEntity.builder().itemId(itemId).name(itemId).price(new BigDecimal("10.0")).quantity(quantity).build();
     }
 
     // A UPI order as Batch 3 leaves it: PENDING_PAYMENT, holding a reservation, with a Razorpay
@@ -80,7 +84,7 @@ class OrderPaymentInventoryTest {
                 .orderId("ORD1")
                 .customerName("Walk-in Customer")
                 .phoneNumber("9999999999")
-                .subtotal(50.0).tax(0.5).grandTotal(50.5)
+                .subtotal(new BigDecimal("50.0")).tax(new BigDecimal("0.5")).grandTotal(new BigDecimal("50.5"))
                 .paymentMethod(PaymentMethod.UPI)
                 .orderStatus(OrderStatus.PENDING_PAYMENT)
                 .paymentDetails(PaymentDetails.builder()

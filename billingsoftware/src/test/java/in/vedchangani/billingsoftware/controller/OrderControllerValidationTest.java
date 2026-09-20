@@ -32,8 +32,6 @@ class OrderControllerValidationTest {
 
     private OrderRequest aRequest() {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 1)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();

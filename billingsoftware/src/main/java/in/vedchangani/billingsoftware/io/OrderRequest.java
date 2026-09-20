@@ -4,7 +4,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,14 +16,11 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
+// Request body for POST /orders (ONLINE). There is deliberately no customerName, phoneNumber, userId,
+// createdBy or salesChannel field: the customer is always the authenticated ROLE_USER, and the order's
+// customerName/phoneNumber are snapshotted from that account by the server (see OrderServiceImpl).
+// Any such property a client sends anyway is ignored on deserialization.
 public class OrderRequest {
-
-    @NotBlank(message = "Customer name is required")
-    private String customerName;
-
-    @NotBlank(message = "Phone number is required")
-    @Pattern(regexp = "^[0-9]{10}$", message = "Phone number must be exactly 10 digits")
-    private String phoneNumber;
 
     @NotBlank(message = "Payment method is required")
     private String paymentMethod;

@@ -6,6 +6,7 @@ import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -63,10 +64,10 @@ public final class OrderSpecifications {
                 predicates.add(cb.lessThan(root.get("createdAt"), q.getDateTo().plusDays(1).atStartOfDay()));
             }
             if (q.getMinAmount() != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.<Double>get("grandTotal"), q.getMinAmount()));
+                predicates.add(cb.greaterThanOrEqualTo(root.<BigDecimal>get("grandTotal"), q.getMinAmount()));
             }
             if (q.getMaxAmount() != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.<Double>get("grandTotal"), q.getMaxAmount()));
+                predicates.add(cb.lessThanOrEqualTo(root.<BigDecimal>get("grandTotal"), q.getMaxAmount()));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };

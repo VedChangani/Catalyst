@@ -9,6 +9,7 @@ import in.vedchangani.billingsoftware.io.PaymentRequest;
 import in.vedchangani.billingsoftware.io.RazorpayOrderResponse;
 import in.vedchangani.billingsoftware.repository.OrderEntityRepository;
 import in.vedchangani.billingsoftware.repository.UserRepository;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -75,7 +77,7 @@ class RazorpayServiceImplTest {
     private OrderEntity anOrder(String orderId, double grandTotal, OrderStatus status, UserEntity owner) {
         OrderEntity order = OrderEntity.builder()
                 .orderId(orderId)
-                .grandTotal(grandTotal)
+                .grandTotal(BigDecimal.valueOf(grandTotal))
                 .orderStatus(status)
                 .user(owner)
                 .paymentDetails(PaymentDetails.builder().status(PaymentDetails.PaymentStatus.PENDING).build())
@@ -92,6 +94,32 @@ class RazorpayServiceImplTest {
                 .status("created")
                 .build();
         doReturn(fakeResponse).when(razorpayService).callRazorpayCreateOrder(anyLong(), any());
+    }
+
+    // ---- The browser gets the PUBLIC key id the order was created with - never the secret ----
+    @Test
+    void createOrder_returnsThePublicKeyId_onFirstAndRepeatCalls_andNeverTheSecret() throws Exception {
+        ReflectionTestUtils.setField(razorpayService, "razorpayKeyId", "rzp_test_PUBLICKEY");
+        ReflectionTestUtils.setField(razorpayService, "razorpayKeySecret", "TOP-SECRET-VALUE");
+        UserEntity alice = aUser(1L, "alice@example.com");
+        authenticateAs("alice@example.com");
+        OrderEntity order = anOrder("ORD1", 32.20, OrderStatus.PENDING_PAYMENT, alice);
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
+        when(orderEntityRepository.findByOrderIdForUpdate("ORD1")).thenReturn(Optional.of(order));
+        when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        stubRazorpayCall("rzp_order_k", 3220L);
+
+        RazorpayOrderResponse first = razorpayService.createOrder("ORD1", "INR");
+        RazorpayOrderResponse repeat = razorpayService.createOrder("ORD1", "INR");
+
+        for (RazorpayOrderResponse response : List.of(first, repeat)) {
+            assertEquals("rzp_test_PUBLICKEY", response.getKeyId());
+            assertEquals("rzp_order_k", response.getId());
+            assertEquals(3220, response.getAmount());
+            assertEquals("INR", response.getCurrency());
+            assertFalse(new ObjectMapper().writeValueAsString(response).contains("TOP-SECRET-VALUE"));
+        }
+        verify(razorpayService, times(1)).callRazorpayCreateOrder(eq(3220L), eq("INR"));
     }
 
     // ---- Amount always comes from the local order's grandTotal; there is nothing for a client to tamper with ----

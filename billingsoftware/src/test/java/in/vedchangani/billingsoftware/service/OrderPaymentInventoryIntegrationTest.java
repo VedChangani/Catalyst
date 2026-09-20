@@ -77,7 +77,7 @@ class OrderPaymentInventoryIntegrationTest {
                 .email("payment-it-" + suffix + "@example.com")
                 .password("not-used")
                 .role("ROLE_USER")
-                .name("Payment IT")
+                .name("Payment IT").mobile(in.vedchangani.billingsoftware.TestMobiles.next())
                 .build());
         category = categoryRepository.save(CategoryEntity.builder()
                 .categoryId("pay-it-cat-" + suffix)
@@ -130,8 +130,6 @@ class OrderPaymentInventoryIntegrationTest {
     // otherwise call the Razorpay API.
     private OrderEntity aPendingUpiOrderWithRazorpayOrder(String razorpayOrderId, OrderRequest.OrderItemRequest... lines) {
         OrderResponse created = orderService.createOrder(OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod("UPI")
                 .cartItems(Arrays.asList(lines))
                 .build());
@@ -445,7 +443,7 @@ class OrderPaymentInventoryIntegrationTest {
 
         // Any new order touching the same item lazily expires the stale reservation.
         orderService.createOrder(OrderRequest.builder()
-                .customerName("Next Customer").phoneNumber("9999999999").paymentMethod("UPI")
+                .paymentMethod("UPI")
                 .cartItems(List.of(line(burger, 1)))
                 .build());
         assertEquals(OrderStatus.PAYMENT_FAILED, reload(stale).getOrderStatus());
@@ -466,14 +464,14 @@ class OrderPaymentInventoryIntegrationTest {
         ItemEntity burger = anItem("burger", 10, 2);
         OrderEntity legacy = orderEntityRepository.save(OrderEntity.builder()
                 .customerName("Legacy Customer").phoneNumber("8888888888")
-                .subtotal(30.0).tax(0.3).grandTotal(30.3)
+                .subtotal(new BigDecimal("30.0")).tax(new BigDecimal("0.3")).grandTotal(new BigDecimal("30.3"))
                 .paymentMethod(PaymentMethod.UPI)
                 .orderStatus(OrderStatus.PENDING_PAYMENT)
                 .paymentDetails(PaymentDetails.builder()
                         .status(PaymentDetails.PaymentStatus.PENDING).razorpayOrderId("rzp_legacy").build())
                 .user(user)
                 .items(new ArrayList<>(List.of(OrderItemEntity.builder()
-                        .itemId(burger.getItemId()).name(burger.getName()).price(10.0).quantity(3).build())))
+                        .itemId(burger.getItemId()).name(burger.getName()).price(new BigDecimal("10.0")).quantity(3).build())))
                 .build());
         legacy.setOrderId("LEGACY-" + UUID.randomUUID());
         OrderEntity saved = orderEntityRepository.save(legacy);

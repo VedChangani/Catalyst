@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 // One row of the ADMIN order list. Deliberately no item lines (keeps the page light and avoids a
@@ -21,9 +22,9 @@ public class AdminOrderSummaryResponse {
     private SalesChannel salesChannel;
     private String customerName;
     private String phoneNumber;
-    private Double subtotal;
-    private Double tax;
-    private Double grandTotal;
+    private BigDecimal subtotal;
+    private BigDecimal tax;
+    private BigDecimal grandTotal;
     private PaymentMethod paymentMethod;
     private PaymentDetails.PaymentStatus paymentStatus;
     private OrderStatus orderStatus;

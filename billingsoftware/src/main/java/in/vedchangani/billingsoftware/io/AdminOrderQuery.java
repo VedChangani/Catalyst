@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 // Every field is an optional filter (AND semantics) except the paging/sorting trio, which
@@ -26,8 +27,8 @@ public class AdminOrderQuery {
     // inclusive; the whole of dateTo's day is included
     private LocalDate dateFrom;
     private LocalDate dateTo;
-    private Double minAmount;
-    private Double maxAmount;
+    private BigDecimal minAmount;
+    private BigDecimal maxAmount;
     private Integer page;
     private Integer size;
     // "field" or "field,asc|desc"; field is one of createdAt | grandTotal | orderId

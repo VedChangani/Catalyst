@@ -26,6 +26,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
@@ -152,11 +153,14 @@ class PaymentSignatureVerificationTest {
         @Mock
         private RazorpayService razorpayService;
 
+        @Mock
+        private AuditService auditService;
+
         private OrderServiceImpl orderService;
 
         @BeforeEach
         void setUp() {
-            orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+            orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
         }
 
         @AfterEach
@@ -188,9 +192,9 @@ class PaymentSignatureVerificationTest {
                     .orderId("ORD123")
                     .customerName("Walk-in Customer")
                     .phoneNumber("9999999999")
-                    .subtotal(100.0)
-                    .tax(1.0)
-                    .grandTotal(101.0)
+                    .subtotal(new BigDecimal("100.0"))
+                    .tax(new BigDecimal("1.0"))
+                    .grandTotal(new BigDecimal("101.0"))
                     .paymentMethod(PaymentMethod.UPI)
                     .orderStatus(status)
                     .paymentDetails(pd)

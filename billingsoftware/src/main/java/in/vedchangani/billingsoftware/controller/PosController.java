@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-// CASHIER + ADMIN only: every /pos/** route is gated in SecurityConfig.
+// CASHIER only: every /pos/** route is gated in SecurityConfig (and POS creation is re-checked in the service).
 @RestController
 @RequestMapping("/pos")
 @RequiredArgsConstructor
@@ -30,6 +30,12 @@ public class PosController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         OrderCreationResult result = orderService.createPosOrder(request, idempotencyKey);
         return ResponseEntity.status(result.isReplayed() ? HttpStatus.OK : HttpStatus.CREATED).body(result.getOrder());
+    }
+
+    // "My Sales": the calling cashier's own POS orders.
+    @GetMapping("/sales")
+    public List<OrderResponse> getMySales() {
+        return orderService.getMySales();
     }
 
     @GetMapping("/customers")

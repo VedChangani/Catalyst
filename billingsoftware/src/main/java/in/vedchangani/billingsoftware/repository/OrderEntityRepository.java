@@ -3,6 +3,7 @@ package in.vedchangani.billingsoftware.repository;
 import in.vedchangani.billingsoftware.entity.OrderEntity;
 import in.vedchangani.billingsoftware.io.OrderStatus;
 import in.vedchangani.billingsoftware.io.PaymentDetails;
+import in.vedchangani.billingsoftware.io.SalesChannel;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,6 +14,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.web.bind.annotation.PathVariable;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -42,11 +44,30 @@ public interface OrderEntityRepository extends JpaRepository<OrderEntity, Long>,
     // don't own even if application code has a bug elsewhere.
     List<OrderEntity> findByUser_IdOrderByCreatedAtDesc(Long userId);
 
-    @Query("SELECT SUM(o.grandTotal) FROM OrderEntity o WHERE DATE(o.createdAt) = :date AND o.orderStatus = 'PAID'")
-    Double sumSalesByDate(@Param("date") LocalDate date);
+    // "My Sales" for a cashier: orders that staff member entered (createdBy) AND that are POS sales.
+    // The channel is constrained explicitly (defence in depth) instead of relying on ONLINE orders
+    // always having createdBy = null. Never the customer association (user).
+    List<OrderEntity> findByCreatedBy_IdAndSalesChannelOrderByCreatedAtDesc(Long createdById, SalesChannel salesChannel);
 
-    @Query("SELECT COUNT(o) FROM OrderEntity o WHERE DATE(o.createdAt) = :date AND o.orderStatus = 'PAID'")
-    Long countByOrderDate(@Param("date") LocalDate date);
+    // Manage Cashiers metrics for many cashiers in ONE grouped query (no per-cashier or per-order
+    // loading). Only POS orders, attributed by createdBy - never by the customer `user`.
+    // Cashiers with no POS orders produce no row.
+    @Query("SELECT o.createdBy.id AS cashierId, COUNT(o) AS ordersProcessed, " +
+            "COALESCE(SUM(CASE WHEN o.orderStatus = :paid THEN o.grandTotal ELSE 0bd END), 0bd) AS posRevenue, " +
+            "MAX(o.createdAt) AS lastSaleAt " +
+            "FROM OrderEntity o WHERE o.salesChannel = :pos AND o.createdBy.id IN :cashierIds " +
+            "GROUP BY o.createdBy.id")
+    List<CashierSalesStats> cashierSalesStats(@Param("cashierIds") Collection<Long> cashierIds,
+                                              @Param("pos") SalesChannel pos,
+                                              @Param("paid") OrderStatus paid);
+
+    // Dashboard "today": PAID orders by EFFECTIVE PAID TIME in [start, end) - the same RevenueQueries
+    // definition Analytics uses, so both classify every order on the same day.
+    @Query("SELECT " + RevenueQueries.REVENUE + " FROM OrderEntity o WHERE " + RevenueQueries.PAID_IN_RANGE)
+    BigDecimal sumPaidRevenue(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("SELECT COUNT(o) FROM OrderEntity o WHERE " + RevenueQueries.PAID_IN_RANGE)
+    Long countPaidOrders(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
     @Query("SELECT o FROM OrderEntity o ORDER BY o.createdAt DESC")
     List<OrderEntity> findRecentOrders(Pageable pageable);

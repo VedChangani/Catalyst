@@ -5,6 +5,7 @@ import in.vedchangani.billingsoftware.exception.RestAuthenticationEntryPoint;
 import in.vedchangani.billingsoftware.filter.JwtRequestFilter;
 import in.vedchangani.billingsoftware.service.impl.AppUserDetailsService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -44,34 +45,46 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         // ---- Public endpoints ----
-                        .requestMatchers("/login", "/encode", "/uploads/**").permitAll()
+                        .requestMatchers("/login", "/uploads/**").permitAll()
+                        // Customer self-registration (always ROLE_USER - see UserServiceImpl.registerCustomer)
+                        .requestMatchers(HttpMethod.POST, "/register").permitAll()
 
                         // ---- USER + CASHIER + ADMIN: product/category browsing (read-only) ----
                         .requestMatchers(HttpMethod.GET, "/categories", "/items").hasAnyRole("USER", "CASHIER", "ADMIN")
 
-                        // ---- USER-only ONLINE ordering (ADMIN/CASHIER enter sales via /pos/orders) ----
+                        // ---- USER-only ONLINE ordering (the CASHIER enters store sales via /pos/orders) ----
                         // (order ownership filtering for "my-orders" is enforced in the service layer;
                         // see OrderServiceImpl.getMyOrders())
                         .requestMatchers(HttpMethod.POST, "/orders").hasRole("USER")
-                        .requestMatchers(HttpMethod.GET, "/orders/my-orders").hasAnyRole("USER", "ADMIN")
-                        // Payment lifecycle: CASHIER is admitted here only so it can settle/release
-                        // the POS orders it entered itself; the service layer rejects everything
-                        // that is not the ONLINE order's customer or the POS order's creator.
+                        // the customer's own purchase history; ADMIN uses /admin/orders, CASHIER /pos/sales
+                        .requestMatchers(HttpMethod.GET, "/orders/my-orders").hasRole("USER")
+                        // Payment lifecycle. The service layer only lets the ONLINE order's customer (user)
+                        // or the POS order's creator (createdBy) act. CASHIER is admitted so it can settle/
+                        // release the POS sales it entered; ADMIN only so it can still settle a historical
+                        // POS order it entered before POS creation became CASHIER-only.
                         .requestMatchers(HttpMethod.POST, "/orders/*/cancel", "/orders/*/fail-payment").hasAnyRole("USER", "CASHIER", "ADMIN")
                         .requestMatchers(HttpMethod.POST, "/payments/create-order", "/payments/verify").hasAnyRole("USER", "CASHIER", "ADMIN")
 
-                        // ---- CASHIER + ADMIN: POS workflow (order entry + customer lookup) ----
-                        .requestMatchers("/pos/**").hasAnyRole("CASHIER", "ADMIN")
+                        // ---- CASHIER only: POS workflow (order entry, customer lookup, own sales). ADMIN
+                        // no longer creates POS sales; it reviews them (historical and new) in /admin/orders. ----
+                        .requestMatchers("/pos/**").hasRole("CASHIER")
 
                         // ---- ADMIN-only: dashboard & administrative order operations ----
                         .requestMatchers(HttpMethod.GET, "/dashboard").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/orders/latest").hasRole("ADMIN")
                         // Customer order details; must stay after the literal /orders/latest and
                         // /orders/my-orders rules above. Ownership is enforced in the service layer.
-                        .requestMatchers(HttpMethod.GET, "/orders/*").hasRole("USER")
-                        .requestMatchers(HttpMethod.DELETE, "/orders/**").hasRole("ADMIN")
+                        // (USER: orders it owns as customer; CASHIER: POS orders it entered - see
+                        // OrderServiceImpl.getMyOrder.)
+                        .requestMatchers(HttpMethod.GET, "/orders/*").hasAnyRole("USER", "CASHIER")
 
-                        // ---- ADMIN-only: item/category/user management ----
+                        // ---- Any signed-in role: the caller's own account (profile + password) ----
+                        .requestMatchers("/account/**").hasAnyRole("USER", "CASHIER", "ADMIN")
+                        // ---- Any signed-in role: the caller's own activity log (admin's system-wide
+                        // log is /admin/activity, covered by the ADMIN rule below) ----
+                        .requestMatchers(HttpMethod.GET, "/activity/me").hasAnyRole("USER", "CASHIER", "ADMIN")
+
+                        // ---- ADMIN-only: All Orders, analytics, items, categories, cashiers, system activity ----
                         .requestMatchers("/admin/**").hasRole("ADMIN")
 
                         .anyRequest().authenticated())
@@ -93,9 +106,28 @@ public class SecurityConfig {
         return new CorsFilter(corsConfigurationSource());
     }
 
+    // Explicit frontend origin(s) from app.cors.allowed-origins (APP_CORS_ALLOWED_ORIGINS,
+    // comma-separated). Credentials are allowed, so a wildcard is refused at startup.
+    @Value("${app.cors.allowed-origins}")
+    private List<String> allowedOrigins;
+
+    static List<String> validatedOrigins(List<String> configured) {
+        List<String> origins = configured == null ? List.of() : configured.stream()
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList();
+        if (origins.isEmpty()) {
+            throw new IllegalStateException("app.cors.allowed-origins (APP_CORS_ALLOWED_ORIGINS) must list at least one origin");
+        }
+        if (origins.stream().anyMatch(origin -> origin.contains("*"))) {
+            throw new IllegalStateException("app.cors.allowed-origins must list explicit origins; '*' is not allowed with credentials");
+        }
+        return origins;
+    }
+
     private UrlBasedCorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173"));
+        config.setAllowedOrigins(validatedOrigins(allowedOrigins));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
         config.setAllowCredentials(true);

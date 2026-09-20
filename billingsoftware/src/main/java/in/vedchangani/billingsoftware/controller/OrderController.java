@@ -33,27 +33,22 @@ public class OrderController {
         return ResponseEntity.status(result.isReplayed() ? HttpStatus.OK : HttpStatus.CREATED).body(result.getOrder());
     }
 
-    // ADMIN-only administrative operation (see SecurityConfig)
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    @DeleteMapping("/{orderId}")
-    public void deleteOrder(@PathVariable String orderId) {
-        orderService.deleteOrder(orderId);
-    }
-
     // ADMIN-only: all orders placed in the system (see SecurityConfig)
     @GetMapping("/latest")
     public List<OrderResponse> getLatestOrders() {
         return orderService.getLatestOrders();
     }
 
-    // USER + ADMIN: the currently authenticated user's own orders (see SecurityConfig).
+    // USER only: the authenticated customer's own orders (see SecurityConfig). Admins use
+    // GET /admin/orders; cashiers use GET /pos/sales.
     @GetMapping("/my-orders")
     public List<OrderResponse> getMyOrders() {
         return orderService.getMyOrders();
     }
 
-    // USER: one order from the authenticated customer's own history, ONLINE or POS (see
-    // SecurityConfig). Ownership is enforced in the service layer.
+    // USER: one order from the authenticated customer's own history, ONLINE or linked POS.
+    // CASHIER: a POS sale the cashier entered (createdBy + POS). Ownership is enforced in the
+    // service layer (see SecurityConfig and OrderServiceImpl.getMyOrder).
     @GetMapping("/{orderId}")
     public OrderResponse getMyOrder(@PathVariable String orderId) {
         return orderService.getMyOrder(orderId);

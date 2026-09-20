@@ -53,11 +53,14 @@ class OrderLifecycleTest {
     @Mock
     private RazorpayService razorpayService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
     }
 
     @AfterEach
@@ -75,6 +78,8 @@ class OrderLifecycleTest {
         user.setId(id);
         user.setEmail(email);
         user.setRole("ROLE_USER");
+        user.setName("Customer " + id);
+        user.setMobile("987654321" + id);
         return user;
     }
 
@@ -92,8 +97,6 @@ class OrderLifecycleTest {
 
     private OrderRequest anOrderRequest(String paymentMethod) {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 2)))
                 .paymentMethod(paymentMethod)
                 .build();
@@ -110,9 +113,9 @@ class OrderLifecycleTest {
                 .orderId("ORD123")
                 .customerName("Walk-in Customer")
                 .phoneNumber("9999999999")
-                .subtotal(100.0)
-                .tax(5.0)
-                .grandTotal(105.0)
+                .subtotal(new BigDecimal("100.0"))
+                .tax(new BigDecimal("5.0"))
+                .grandTotal(new BigDecimal("105.0"))
                 .paymentMethod(PaymentMethod.UPI)
                 .orderStatus(OrderStatus.PENDING_PAYMENT)
                 .paymentDetails(pd)

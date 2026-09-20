@@ -16,6 +16,18 @@ public interface ItemRepository extends JpaRepository<ItemEntity, Long> {
 
     Integer countByCategoryId(Long id);
 
+    // Deletes the item row by primary key, but only while nothing is reserved against it, in ONE
+    // statement. Returns the number of rows deleted (0 = not there, or it holds a reservation).
+    //
+    // Why not itemRepository.delete(entity): Spring Data treats an entity whose @Version is null as
+    // "new" and returns WITHOUT running any SQL. Rows created before inventory tracking have a NULL
+    // version, so delete(entity) silently did nothing for them while the API still answered 204.
+    // A JPQL DELETE never consults the version, and the reservation guard is checked atomically
+    // (a NULL reservedQuantity on such legacy rows means nothing is reserved).
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM ItemEntity i WHERE i.id = :id AND (i.reservedQuantity IS NULL OR i.reservedQuantity = 0)")
+    int deleteUnreservedById(@Param("id") Long id);
+
     // Every stock mutation below also bumps @Version. JPQL bulk UPDATEs don't do that on their
     // own, and ItemServiceImpl.update saves the whole row (stock columns included): without the
     // bump, an admin edit loaded before a reservation would pass its version check and silently

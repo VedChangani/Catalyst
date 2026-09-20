@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.TestMoney;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import in.vedchangani.billingsoftware.entity.OrderEntity;
@@ -18,6 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -97,17 +99,17 @@ class AdminOrderManagementTest {
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
-                .role(role).name(name).build());
+                .role(role).name(name).mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
     }
 
     private OrderEntity seed(int n, UserEntity customer, UserEntity createdBy, SalesChannel channel, String name,
                              String phone, double grandTotal, OrderStatus orderStatus, PaymentMethod method,
                              PaymentDetails.PaymentStatus payStatus, LocalDateTime createdAt) {
         List<OrderItemEntity> lines = new ArrayList<>();
-        lines.add(OrderItemEntity.builder().itemId("i-" + n).name("Coffee").price(grandTotal).quantity(1).build());
+        lines.add(OrderItemEntity.builder().itemId("i-" + n).name("Coffee").price(BigDecimal.valueOf(grandTotal)).quantity(1).build());
         OrderEntity order = orderEntityRepository.save(OrderEntity.builder()
                 .customerName(name).phoneNumber(phone)
-                .subtotal(grandTotal - 1).tax(1.0).grandTotal(grandTotal)
+                .subtotal(BigDecimal.valueOf(grandTotal - 1)).tax(new BigDecimal("1.0")).grandTotal(BigDecimal.valueOf(grandTotal))
                 .paymentMethod(method).orderStatus(orderStatus)
                 .paymentDetails(PaymentDetails.builder().status(payStatus).build())
                 .items(lines).user(customer).createdBy(createdBy).salesChannel(channel)
@@ -488,7 +490,7 @@ class AdminOrderManagementTest {
         assertEquals("PAID", three.get("orderStatus").asText());
         assertEquals("9000000001", three.get("phoneNumber").asText());
         OrderEntity stored = orderEntityRepository.findByOrderId(id(3)).orElseThrow();
-        assertEquals(500.0, stored.getGrandTotal(), 0.0001);
+        TestMoney.assertMoney("500.0", stored.getGrandTotal());
     }
 
     // ---- compatibility ----

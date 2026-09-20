@@ -13,6 +13,7 @@ import in.vedchangani.billingsoftware.io.RazorpayOrderResponse;
 import in.vedchangani.billingsoftware.repository.OrderEntityRepository;
 import in.vedchangani.billingsoftware.repository.UserRepository;
 import in.vedchangani.billingsoftware.service.RazorpayService;
+import in.vedchangani.billingsoftware.util.Money;
 import lombok.RequiredArgsConstructor;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,13 +57,15 @@ public class RazorpayServiceImpl implements RazorpayService {
         // the payment amount always comes from this order's authoritative grandTotal.
         OrderEntity localOrder = resolveOrderForPayment(localOrderId);
 
-        // Razorpay expects the amount in the smallest currency sub-unit (paise for INR).
-        // Rounding, rather than truncating, avoids losing a paisa to floating-point error.
-        long amountInPaise = Math.round(localOrder.getGrandTotal() * 100);
+        // Razorpay expects the amount in the smallest currency sub-unit (paise for INR). It is the
+        // order's authoritative BigDecimal grand total converted exactly (Money.toMinorUnits: rounded
+        // HALF_UP to paise, then moved two places) - no floating-point step.
+        long amountInPaise = Money.toMinorUnits(localOrder.getGrandTotal());
 
         PaymentDetails existingDetails = localOrder.getPaymentDetails();
         if (existingDetails != null && existingDetails.getRazorpayOrderId() != null) {
             return RazorpayOrderResponse.builder()
+                    .keyId(razorpayKeyId)
                     .id(existingDetails.getRazorpayOrderId())
                     .entity("order")
                     .amount(Math.toIntExact(amountInPaise))
@@ -89,6 +92,8 @@ public class RazorpayServiceImpl implements RazorpayService {
         paymentDetails.setRazorpayOrderId(response.getId());
         orderEntityRepository.save(localOrder);
 
+        // The browser opens Checkout with the same PUBLIC key id this order was created with.
+        response.setKeyId(razorpayKeyId);
         return response;
     }
 

@@ -110,7 +110,7 @@ class LatePaymentHandlingTest {
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
-                .role(role).name(name).build());
+                .role(role).name(name).mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
     }
 
     private void authenticateAs(UserEntity actor) {
@@ -122,7 +122,7 @@ class LatePaymentHandlingTest {
     private String pendingOrderTiedTo(String razorpayOrderId) {
         authenticateAs(customer);
         String orderId = orderService.createOrder(OrderRequest.builder()
-                .customerName("Aaron").phoneNumber("9999999999").paymentMethod("UPI")
+                .paymentMethod("UPI")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest(item.getItemId(), 1))).build()).getOrderId();
         OrderEntity order = stored(orderId);
         order.getPaymentDetails().setRazorpayOrderId(razorpayOrderId);

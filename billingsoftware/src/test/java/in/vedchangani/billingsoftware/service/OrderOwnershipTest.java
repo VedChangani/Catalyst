@@ -51,11 +51,14 @@ class OrderOwnershipTest {
     @Mock
     private RazorpayService razorpayService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
     }
 
     @AfterEach
@@ -73,6 +76,8 @@ class OrderOwnershipTest {
         user.setId(id);
         user.setEmail(email);
         user.setRole("ROLE_USER");
+        user.setName("Customer " + id);
+        user.setMobile("987654321" + id);
         return user;
     }
 
@@ -90,8 +95,6 @@ class OrderOwnershipTest {
 
     private OrderRequest anOrderRequest() {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 2)))
                 .paymentMethod(PaymentMethod.CASH.name())
                 .build();
@@ -124,7 +127,7 @@ class OrderOwnershipTest {
 
         OrderEntity aliceOrder = OrderEntity.builder()
                 .orderId("ORD1").customerName("Alice").phoneNumber("111")
-                .subtotal(10.0).tax(1.0).grandTotal(11.0)
+                .subtotal(new BigDecimal("10.0")).tax(new BigDecimal("1.0")).grandTotal(new BigDecimal("11.0"))
                 .paymentMethod(PaymentMethod.CASH).items(List.of()).user(alice)
                 .build();
         when(orderEntityRepository.findByUser_IdOrderByCreatedAtDesc(1L))
@@ -164,12 +167,12 @@ class OrderOwnershipTest {
         UserEntity bob = aUser(2L, "bob@example.com");
         OrderEntity aliceOrder = OrderEntity.builder()
                 .orderId("ORD1").customerName("Alice").phoneNumber("111")
-                .subtotal(10.0).tax(1.0).grandTotal(11.0)
+                .subtotal(new BigDecimal("10.0")).tax(new BigDecimal("1.0")).grandTotal(new BigDecimal("11.0"))
                 .paymentMethod(PaymentMethod.CASH).items(List.of()).user(alice)
                 .build();
         OrderEntity bobOrder = OrderEntity.builder()
                 .orderId("ORD2").customerName("Bob").phoneNumber("222")
-                .subtotal(20.0).tax(2.0).grandTotal(22.0)
+                .subtotal(new BigDecimal("20.0")).tax(new BigDecimal("2.0")).grandTotal(new BigDecimal("22.0"))
                 .paymentMethod(PaymentMethod.CASH).items(List.of()).user(bob)
                 .build();
         when(orderEntityRepository.findAllByOrderByCreatedAtDesc())

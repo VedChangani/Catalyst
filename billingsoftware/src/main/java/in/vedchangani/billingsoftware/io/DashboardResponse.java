@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Data
@@ -13,7 +14,7 @@ import java.util.List;
 @NoArgsConstructor
 public class DashboardResponse {
 
-    private Double todaySales;
+    private BigDecimal todaySales;
     private Long todayOrderCount;
     private List<OrderResponse> recentOrders;
 }

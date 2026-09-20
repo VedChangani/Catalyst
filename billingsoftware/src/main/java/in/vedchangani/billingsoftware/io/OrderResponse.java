@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -17,9 +18,9 @@ public class OrderResponse {
     private String customerName;
     private String phoneNumber;
     private List<OrderResponse.OrderItemResponse> items;
-    private Double subtotal;
-    private Double tax;
-    private Double grandTotal;
+    private BigDecimal subtotal;
+    private BigDecimal tax;
+    private BigDecimal grandTotal;
     private PaymentMethod paymentMethod;
     private LocalDateTime createdAt;
     private PaymentSummary paymentDetails;
@@ -27,9 +28,13 @@ public class OrderResponse {
     private String paymentStatus;
     // Null for legacy orders whose channel was never recorded.
     private SalesChannel salesChannel;
-    // Staff member who entered a POS sale. Only populated in staff/admin-facing responses; never
+    // Staff member who entered a POS sale. Only populated in staff-facing responses (POS receipt,
+    // My Sales, cashier order detail); never
     // in a customer's own order history.
     private StaffSummary createdBy;
+    // The registered customer linked to the order (`user`); null for walk-in sales. Staff-facing
+    // responses only - a customer's own history never needs it.
+    private CustomerSummaryResponse customer;
 
     // Public view of the persisted PaymentDetails: the cryptographic razorpaySignature is never
     // returned to any client.
@@ -61,9 +66,9 @@ public class OrderResponse {
         private String itemId;
         private String name;
         // Historical snapshot taken from OrderItemEntity at purchase time, never the current catalog.
-        private Double price;
+        private BigDecimal price;
         private Integer quantity;
         // snapshot price x quantity; null only for a legacy line missing either value.
-        private Double lineTotal;
+        private BigDecimal lineTotal;
     }
 }

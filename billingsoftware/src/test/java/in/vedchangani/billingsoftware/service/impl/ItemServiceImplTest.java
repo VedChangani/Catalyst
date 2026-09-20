@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service.impl;
 
+import in.vedchangani.billingsoftware.service.AuditService;
 import in.vedchangani.billingsoftware.entity.CategoryEntity;
 import in.vedchangani.billingsoftware.entity.ItemEntity;
 import in.vedchangani.billingsoftware.exception.ConflictException;
@@ -12,6 +13,8 @@ import in.vedchangani.billingsoftware.repository.CategoryRepository;
 import in.vedchangani.billingsoftware.repository.ItemRepository;
 import in.vedchangani.billingsoftware.service.FileUploadService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -19,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Path;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -38,6 +42,13 @@ import static org.mockito.Mockito.*;
  */
 @ExtendWith(MockitoExtension.class)
 class ItemServiceImplTest {
+
+    // Uploads written by these tests go here (deleted by JUnit), never into the real uploads/ folder.
+    @TempDir
+    Path uploadsTempDir;
+
+    @Mock
+    private AuditService auditService;
 
     @Mock
     private FileUploadService fileUploadService;
@@ -80,7 +91,9 @@ class ItemServiceImplTest {
 
     @Test
     void add_mapsSkuStockAndForcesReservedQuantityToZero() throws Exception {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemRequest request = ItemRequest.builder()
                 .name("Burger").price(BigDecimal.valueOf(50)).categoryId("CAT1")
                 .sku("SKU-1").stockQuantity(20).lowStockThreshold(3).active(false)
@@ -90,6 +103,13 @@ class ItemServiceImplTest {
 
         ItemResponse response = itemService.add(request, aFile());
 
+        // the image URL comes from configuration (app.uploads.public-base-url), not a hardcoded host
+        assertTrue(response.getImgUrl().startsWith("https://images.example.test/uploads/"), response.getImgUrl());
+        assertFalse(response.getImgUrl().contains("localhost"));
+        // the file was written to the configured (temporary) directory, not the real uploads/ folder
+        String fileName = response.getImgUrl().substring(response.getImgUrl().lastIndexOf('/') + 1);
+        assertTrue(java.nio.file.Files.exists(uploadsTempDir.resolve(fileName)));
+        assertFalse(java.nio.file.Files.exists(java.nio.file.Paths.get("uploads").resolve(fileName)));
         assertEquals("SKU-1", response.getSku());
         assertEquals(20, response.getStockQuantity());
         assertEquals(0, response.getReservedQuantity());
@@ -104,7 +124,9 @@ class ItemServiceImplTest {
 
     @Test
     void add_defaultsLowStockThresholdAndActiveWhenOmitted() throws Exception {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemRequest request = ItemRequest.builder()
                 .name("Burger").price(BigDecimal.valueOf(50)).categoryId("CAT1")
                 .stockQuantity(10)
@@ -124,7 +146,9 @@ class ItemServiceImplTest {
 
     @Test
     void update_updatesMetadataButNeverTouchesStock() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemEntity existing = anItem("ITEM1", 15, 4, 5, true);
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(existing));
         when(itemRepository.save(any(ItemEntity.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -146,7 +170,9 @@ class ItemServiceImplTest {
 
     @Test
     void update_rejectsNonExistentItem() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         when(itemRepository.findByItemId("GHOST")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
@@ -159,7 +185,9 @@ class ItemServiceImplTest {
         // ItemUpdateRequest has no stockQuantity/reservedQuantity setter at all - this is enforced
         // structurally by the DTO, verified here by exercising a full update and confirming stock
         // is unchanged regardless of what metadata was edited.
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemEntity existing = anItem("ITEM1", 15, 4, 5, true);
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(existing));
         when(itemRepository.save(any(ItemEntity.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -172,7 +200,9 @@ class ItemServiceImplTest {
 
     @Test
     void update_propagatesOptimisticLockingFailureFromSave() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemEntity existing = anItem("ITEM1", 15, 0, 5, true);
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(existing));
         when(itemRepository.save(any(ItemEntity.class)))
@@ -186,7 +216,9 @@ class ItemServiceImplTest {
 
     @Test
     void adjustStock_positiveDeltaRestocksUsingAtomicQuery() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         when(itemRepository.findByItemId("ITEM1"))
                 .thenReturn(Optional.of(anItem("ITEM1", 10, 2, 5, true)))
                 .thenReturn(Optional.of(anItem("ITEM1", 15, 2, 5, true)));
@@ -202,7 +234,9 @@ class ItemServiceImplTest {
 
     @Test
     void adjustStock_validNegativeCorrectionSucceeds() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         when(itemRepository.findByItemId("ITEM1"))
                 .thenReturn(Optional.of(anItem("ITEM1", 10, 2, 5, true)))
                 .thenReturn(Optional.of(anItem("ITEM1", 7, 2, 5, true)));
@@ -215,7 +249,9 @@ class ItemServiceImplTest {
 
     @Test
     void adjustStock_negativeCorrectionBelowReservedQuantityIsConflict() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", 10, 8, 5, true)));
         when(itemRepository.adjustStockQuantity("ITEM1", -5)).thenReturn(0);
 
@@ -225,7 +261,9 @@ class ItemServiceImplTest {
 
     @Test
     void adjustStock_rejectsNonExistentItemWith404() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         when(itemRepository.findByItemId("GHOST")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
@@ -237,35 +275,56 @@ class ItemServiceImplTest {
 
     @Test
     void deleteItem_blockedWhenReservedQuantityPositive() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(anItem("ITEM1", 10, 3, 5, true)));
 
         assertThrows(ConflictException.class, () -> itemService.deleteItem("ITEM1"));
-        verify(itemRepository, never()).delete(any());
+        verify(itemRepository, never()).deleteUnreservedById(any());
     }
 
     @Test
     void deleteItem_allowedWhenReservedQuantityIsZero() {
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemEntity item = anItem("ITEM1", 10, 0, 5, true);
         item.setImgUrl("http://localhost:8080/api/v1.0/uploads/nonexistent-file.png");
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(item));
+        when(itemRepository.deleteUnreservedById(1L)).thenReturn(1);
 
         itemService.deleteItem("ITEM1");
 
-        verify(itemRepository).delete(item);
+        verify(itemRepository).deleteUnreservedById(1L);
     }
 
     @Test
     void deleteItem_allowedWhenReservedQuantityIsNull() {
         // legacy row from before the inventory batch - reservedQuantity was never backfilled yet.
-        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository);
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
         ItemEntity item = anItem("ITEM1", null, null, null, null);
         item.setImgUrl("http://localhost:8080/api/v1.0/uploads/nonexistent-file.png");
         when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(item));
+        when(itemRepository.deleteUnreservedById(1L)).thenReturn(1);
 
         itemService.deleteItem("ITEM1");
 
-        verify(itemRepository).delete(item);
+        verify(itemRepository).deleteUnreservedById(1L);
+    }
+
+    // Mock-level check only: the real "row is gone" proof is ItemDeletionPersistenceTest (H2, real SQL).
+    @Test
+    void deleteItem_neverReportsSuccess_whenNoRowWasDeleted() {
+        itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
+        ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
+        ItemEntity item = anItem("ITEM1", null, null, null, null);
+        when(itemRepository.findByItemId("ITEM1")).thenReturn(Optional.of(item));
+        when(itemRepository.deleteUnreservedById(1L)).thenReturn(0);
+
+        assertThrows(ConflictException.class, () -> itemService.deleteItem("ITEM1"));
+        verifyNoInteractions(auditService);
     }
 }

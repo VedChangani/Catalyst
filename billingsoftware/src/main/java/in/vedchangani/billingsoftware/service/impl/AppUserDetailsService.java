@@ -5,7 +5,6 @@ import in.vedchangani.billingsoftware.io.UserResponse;
 import in.vedchangani.billingsoftware.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -23,6 +22,10 @@ public class AppUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         UserEntity existingUser = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Email not found for the email: "+email));
-        return new User(existingUser.getEmail(), existingUser.getPassword(), Collections.singleton(new SimpleGrantedAuthority(existingUser.getRole())));
+        // enabled=false makes the authentication provider reject the login and JwtRequestFilter
+        // ignore any token the account already holds.
+        return new AppUserPrincipal(existingUser.getEmail(), existingUser.getPassword(), existingUser.isAccountEnabled(),
+                Collections.singleton(new SimpleGrantedAuthority(existingUser.getRole())),
+                existingUser.currentTokenVersion());
     }
 }

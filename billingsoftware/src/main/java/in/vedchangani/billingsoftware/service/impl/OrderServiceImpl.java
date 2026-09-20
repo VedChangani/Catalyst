@@ -11,8 +11,10 @@ import in.vedchangani.billingsoftware.repository.ItemRepository;
 import in.vedchangani.billingsoftware.repository.OrderEntityRepository;
 import in.vedchangani.billingsoftware.repository.OrderSpecifications;
 import in.vedchangani.billingsoftware.repository.UserRepository;
+import in.vedchangani.billingsoftware.service.AuditService;
 import in.vedchangani.billingsoftware.service.OrderService;
 import in.vedchangani.billingsoftware.service.RazorpayService;
+import in.vedchangani.billingsoftware.util.Money;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -45,9 +48,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
 
-    // Tax rate applied to the server-computed subtotal. Kept in sync with the
-    // display-only calculation in the frontend cart summary (1%).
-    private static final double TAX_RATE = 0.01;
+    // Money (prices, subtotal, 1% tax, grand total) is BigDecimal with one rounding rule - see
+    // util/Money. The frontend cart summary shows the same figures for display only.
 
     // A PENDING_PAYMENT order older than this is treated as abandoned: its reservation is
     // released lazily the next time another order touches one of its items.
@@ -61,6 +63,7 @@ public class OrderServiceImpl implements OrderService {
     // Used only for cryptographic signature verification; the Razorpay key secret stays
     // inside RazorpayServiceImpl and never crosses this boundary.
     private final RazorpayService razorpayService;
+    private final AuditService auditService;
 
     // One transaction: stale-reservation expiry, every stock reservation (and, for CASH, every
     // commit) and the order insert either all commit or all roll back. A conflict on the last
@@ -69,8 +72,8 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
-        return createOrderInternal(SalesChannel.ONLINE, null, request.getCustomerName(),
-                request.getPhoneNumber(), request.getPaymentMethod(), request.getCartItems(), null).getOrder();
+        return createOrderInternal(SalesChannel.ONLINE, null, null,
+                null, request.getPaymentMethod(), request.getCartItems(), null).getOrder();
     }
 
     // POS entry point. Pricing, tax, inventory reservation/commit, payment handling and
@@ -100,7 +103,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderCreationResult createOrder(OrderRequest request, String idempotencyKey) {
         return createIdempotently(idempotencyKey, () -> createOrderInternal(SalesChannel.ONLINE, null,
-                request.getCustomerName(), request.getPhoneNumber(), request.getPaymentMethod(),
+                null, null, request.getPaymentMethod(),
                 request.getCartItems(), idempotencyKey));
     }
 
@@ -254,11 +257,13 @@ public class OrderServiceImpl implements OrderService {
         requestedQuantities.forEach((itemId, quantity) ->
                 orderItems.add(toOrderItemSnapshot(itemsById.get(itemId), quantity)));
 
-        double subtotal = orderItems.stream()
-                .mapToDouble(item -> item.getPrice() * item.getQuantity())
-                .sum();
-        double tax = subtotal * TAX_RATE;
-        double grandTotal = subtotal + tax;
+        // Exact decimal arithmetic: line totals and subtotal are exact, tax is 1% rounded HALF_UP
+        // to paise, grand total = subtotal + tax. No floating point anywhere.
+        BigDecimal subtotal = orderItems.stream()
+                .map(item -> Money.lineTotal(item.getPrice(), item.getQuantity()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal tax = Money.tax(subtotal);
+        BigDecimal grandTotal = subtotal.add(tax);
 
         PaymentMethod paymentMethod = PaymentMethod.valueOf(paymentMethodName);
         boolean isCash = paymentMethod == PaymentMethod.CASH;
@@ -275,12 +280,30 @@ public class OrderServiceImpl implements OrderService {
         if (channel == SalesChannel.ONLINE) {
             customer = actor;
             createdBy = null;
+            // The ONLINE request carries no identity: the order's customerName/phoneNumber are a
+            // snapshot of the authenticated account as it is right now. Later profile edits never
+            // touch this order. An account without the required details cannot check out - and
+            // nothing is ever taken from the request or invented as a fallback.
+            customerName = actor.getName() == null ? null : actor.getName().trim();
+            phoneNumber = actor.getMobile() == null ? null : actor.getMobile().trim();
+            if (customerName == null || customerName.isEmpty() || phoneNumber == null || phoneNumber.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Your account is missing a name or mobile number. Complete your profile before placing an order.");
+            }
         } else {
             requireStaff(actor);
             customer = resolvePosCustomer(customerUserId);
             createdBy = actor;
-            if ((customerName == null || customerName.isBlank()) && customer != null) {
-                customerName = customer.getName();
+            // A selected registered customer fills in whatever billing detail the cashier left
+            // blank, so the order's snapshot identifies them (never the other way round: typed
+            // details are not used to find an account).
+            if (customer != null) {
+                if (customerName == null || customerName.isBlank()) {
+                    customerName = customer.getName();
+                }
+                if (phoneNumber == null || phoneNumber.isBlank()) {
+                    phoneNumber = customer.getMobile();
+                }
             }
         }
 
@@ -317,13 +340,30 @@ public class OrderServiceImpl implements OrderService {
         newOrder.setItems(orderItems);
 
         newOrder = orderEntityRepository.save(newOrder);
+
+        // The single creation event, inside this transaction (a later failure rolls it back with the
+        // order). Idempotent replays return before reaching here, so they never log a second one.
+        // The actor is the authenticated caller: the customer for ONLINE, the cashier (createdBy)
+        // for POS - never the POS order's customer `user`. No customer identity goes in the details.
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("salesChannel", channel);
+        details.put("paymentMethod", paymentMethod);
+        details.put("orderStatus", newOrder.getOrderStatus());
+        details.put("grandTotal", grandTotal);
+        if (channel == SalesChannel.POS) {
+            details.put("customer", customer == null ? "WALK_IN" : "REGISTERED");
+        }
+        auditService.recordFor(actor,
+                channel == SalesChannel.POS ? AuditAction.POS_ORDER_CREATED : AuditAction.ONLINE_ORDER_CREATED,
+                AuditTargetType.ORDER, newOrder.getOrderId(), details);
+
         return new OrderCreationResult(
                 channel == SalesChannel.POS ? convertToStaffResponse(newOrder) : convertToResponse(newOrder), false);
     }
 
     private void requireStaff(UserEntity actor) {
-        if (!"ROLE_CASHIER".equals(actor.getRole()) && !"ROLE_ADMIN".equals(actor.getRole())) {
-            throw new AccessDeniedException("Only cashiers and administrators can create POS orders");
+        if (!"ROLE_CASHIER".equals(actor.getRole())) {
+            throw new AccessDeniedException("Only cashiers can create POS orders");
         }
     }
 
@@ -384,8 +424,10 @@ public class OrderServiceImpl implements OrderService {
         // persistence context, after which the remaining lazy items collections couldn't load.
         // TreeMap = claims happen in ascending order id, a deterministic lock order.
         Map<Long, List<OrderItemEntity>> linesByOrderId = new TreeMap<>();
+        Map<Long, String> publicIdById = new HashMap<>();
         for (OrderEntity staleOrder : staleOrders) {
             linesByOrderId.put(staleOrder.getId(), new ArrayList<>(staleOrder.getItems()));
+            publicIdById.put(staleOrder.getId(), staleOrder.getOrderId());
         }
 
         Map<String, Integer> releases = new HashMap<>();
@@ -401,6 +443,11 @@ public class OrderServiceImpl implements OrderService {
             for (OrderItemEntity line : lines) {
                 releases.merge(line.getItemId(), line.getQuantity(), Integer::sum);
             }
+            // A real PENDING_PAYMENT -> PAYMENT_FAILED transition made by the system, not by the
+            // person whose checkout happened to trigger it - so it is a SYSTEM event. It is part of
+            // that checkout's transaction and rolls back with it.
+            auditService.recordSystem(AuditAction.PAYMENT_FAILED, AuditTargetType.ORDER, publicIdById.get(orderId),
+                    Map.of("reason", "RESERVATION_EXPIRED"));
         });
         return releases;
     }
@@ -471,7 +518,7 @@ public class OrderServiceImpl implements OrderService {
         return OrderItemEntity.builder()
                 .itemId(item.getItemId())
                 .name(item.getName())
-                .price(item.getPrice().doubleValue())
+                .price(item.getPrice())
                 .quantity(quantity)
                 .build();
     }
@@ -481,10 +528,16 @@ public class OrderServiceImpl implements OrderService {
         return toResponseBuilder(newOrder).build();
     }
 
-    // Staff/admin-facing shape: adds which staff member entered a POS sale.
+    // Staff-facing shape (POS receipt, My Sales, cashier order detail): adds who entered a POS sale.
     private OrderResponse convertToStaffResponse(OrderEntity order) {
         UserEntity staff = order.getCreatedBy();
+        UserEntity customer = order.getUser();
         return toResponseBuilder(order)
+                .customer(customer == null ? null : CustomerSummaryResponse.builder()
+                        .userId(customer.getUserId())
+                        .name(customer.getName())
+                        .email(customer.getEmail())
+                        .build())
                 .createdBy(staff == null ? null : OrderResponse.StaffSummary.builder()
                         .userId(staff.getUserId())
                         .name(staff.getName())
@@ -497,9 +550,9 @@ public class OrderServiceImpl implements OrderService {
                 .orderId(newOrder.getOrderId())
                 .customerName(newOrder.getCustomerName())
                 .phoneNumber(newOrder.getPhoneNumber())
-                .subtotal(newOrder.getSubtotal())
-                .tax(newOrder.getTax())
-                .grandTotal(newOrder.getGrandTotal())
+                .subtotal(Money.forResponse(newOrder.getSubtotal()))
+                .tax(Money.forResponse(newOrder.getTax()))
+                .grandTotal(Money.forResponse(newOrder.getGrandTotal()))
                 .paymentMethod(newOrder.getPaymentMethod())
                 .items(newOrder.getItems().stream()
                         .map(this::convertToItemResponse)
@@ -526,30 +579,27 @@ public class OrderServiceImpl implements OrderService {
         return OrderResponse.OrderItemResponse.builder()
                 .itemId(orderItemEntity.getItemId())
                 .name(orderItemEntity.getName())
-                .price(orderItemEntity.getPrice())
+                .price(Money.forResponse(orderItemEntity.getPrice()))
                 .quantity(orderItemEntity.getQuantity())
                 .lineTotal(orderItemEntity.getPrice() == null || orderItemEntity.getQuantity() == null
                         ? null
-                        : orderItemEntity.getPrice() * orderItemEntity.getQuantity())
+                        : Money.forResponse(Money.lineTotal(orderItemEntity.getPrice(), orderItemEntity.getQuantity())))
                 .build();
 
     }
 
-    @Override
-    public void deleteOrder(String orderId) {
-        OrderEntity existingOrder = orderEntityRepository.findByOrderId(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+    // There is deliberately no way to hard-delete an order. Every order is part of the sales
+    // history: PAID is a completed sale, CANCELLED/PAYMENT_FAILED record what happened to a
+    // checkout, and PENDING_PAYMENT holds an inventory reservation. The former ADMIN-only
+    // DELETE /orders/{id} (unused by any screen) was removed so paid history cannot be erased.
 
-        // Deleting an order that still holds an uncommitted reservation would strand that
-        // reservedQuantity forever - nothing would ever be left to release/commit it. The order
-        // must first reach PAID (commit), CANCELLED, or PAYMENT_FAILED (release) through the
-        // normal lifecycle, which clears this flag.
-        if (Boolean.TRUE.equals(existingOrder.getInventoryReserved())) {
-            throw new ConflictException(
-                    "Cannot delete order " + orderId + ": it still holds an active inventory reservation");
-        }
-
-        orderEntityRepository.delete(existingOrder);
+    // Minimal, non-identifying context for order lifecycle events.
+    private static Map<String, Object> lifecycleDetails(OrderEntity order) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (order.getSalesChannel() != null) details.put("salesChannel", order.getSalesChannel());
+        if (order.getPaymentMethod() != null) details.put("paymentMethod", order.getPaymentMethod());
+        if (order.getOrderStatus() != null) details.put("orderStatus", order.getOrderStatus());
+        return details;
     }
 
     @Override
@@ -588,14 +638,14 @@ public class OrderServiceImpl implements OrderService {
         if (query.getSearch() != null && query.getSearch().length() > MAX_SEARCH_LENGTH) {
             throw new IllegalArgumentException("search must be at most " + MAX_SEARCH_LENGTH + " characters");
         }
-        if (query.getMinAmount() != null && (!Double.isFinite(query.getMinAmount()) || query.getMinAmount() < 0)) {
+        if (query.getMinAmount() != null && query.getMinAmount().signum() < 0) {
             throw new IllegalArgumentException("minAmount must be 0 or greater");
         }
-        if (query.getMaxAmount() != null && (!Double.isFinite(query.getMaxAmount()) || query.getMaxAmount() < 0)) {
+        if (query.getMaxAmount() != null && query.getMaxAmount().signum() < 0) {
             throw new IllegalArgumentException("maxAmount must be 0 or greater");
         }
         if (query.getMinAmount() != null && query.getMaxAmount() != null
-                && query.getMinAmount() > query.getMaxAmount()) {
+                && query.getMinAmount().compareTo(query.getMaxAmount()) > 0) {
             throw new IllegalArgumentException("minAmount must not be greater than maxAmount");
         }
         if (query.getDateFrom() != null && query.getDateTo() != null
@@ -651,9 +701,9 @@ public class OrderServiceImpl implements OrderService {
                 .salesChannel(order.getSalesChannel())
                 .customerName(order.getCustomerName())
                 .phoneNumber(order.getPhoneNumber())
-                .subtotal(order.getSubtotal())
-                .tax(order.getTax())
-                .grandTotal(order.getGrandTotal())
+                .subtotal(Money.forResponse(order.getSubtotal()))
+                .tax(Money.forResponse(order.getTax()))
+                .grandTotal(Money.forResponse(order.getGrandTotal()))
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(payment == null ? null : payment.getStatus())
                 .orderStatus(order.getOrderStatus())
@@ -684,6 +734,19 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toList());
     }
 
+    // The cashier's own sales: filtered in the database by createdBy = the authenticated caller,
+    // so it never lists another cashier's sales or anything the caller merely is the customer of.
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getMySales() {
+        UserEntity cashier = getAuthenticatedUser();
+        requireStaff(cashier);
+        return orderEntityRepository.findByCreatedBy_IdAndSalesChannelOrderByCreatedAtDesc(cashier.getId(), SalesChannel.POS)
+                .stream()
+                .map(this::convertToStaffResponse)
+                .collect(Collectors.toList());
+    }
+
     // One order of the authenticated customer's own history. Ownership is `user` only - never
     // customerName, phoneNumber, createdBy or salesChannel. Line items come from the persisted
     // OrderItemEntity snapshot, so later catalog price/name changes cannot alter what is shown.
@@ -694,6 +757,19 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
         UserEntity currentUser = getAuthenticatedUser();
+        // CASHIER: only a POS sale it entered itself (createdBy), walk-in or registered customer.
+        // Never another cashier's sale and never an ONLINE order. The cashier is always the
+        // authenticated principal - no id from the request takes part.
+        if ("ROLE_CASHIER".equals(currentUser.getRole())) {
+            boolean enteredByCaller = order.getSalesChannel() == SalesChannel.POS
+                    && order.getCreatedBy() != null
+                    && order.getCreatedBy().getId().equals(currentUser.getId());
+            if (!enteredByCaller) {
+                throw new AccessDeniedException("You are not authorized to view this order");
+            }
+            return convertToStaffResponse(order);
+        }
+        // Everyone else (URL rules admit only USER here): the order's customer (`user`) only.
         if (order.getUser() == null || !order.getUser().getId().equals(currentUser.getId())) {
             throw new AccessDeniedException("You are not authorized to view this order");
         }
@@ -777,6 +853,10 @@ public class OrderServiceImpl implements OrderService {
         existingOrder.setOrderStatus(OrderStatus.PAID);
 
         existingOrder = orderEntityRepository.save(existingOrder);
+        // Only the real PENDING_PAYMENT -> PAID transition is audited (a replayed verification
+        // returned earlier). No Razorpay ids or signature in the details.
+        auditService.recordFor(currentUser, AuditAction.PAYMENT_VERIFIED, AuditTargetType.ORDER,
+                existingOrder.getOrderId(), lifecycleDetails(existingOrder));
         return convertToResponse(existingOrder);
 
     }
@@ -835,6 +915,8 @@ public class OrderServiceImpl implements OrderService {
         existingOrder.getPaymentDetails().setStatus(PaymentDetails.PaymentStatus.FAILED);
 
         existingOrder = orderEntityRepository.save(existingOrder);
+        auditService.recordFor(currentUser, AuditAction.ORDER_CANCELLED, AuditTargetType.ORDER,
+                existingOrder.getOrderId(), lifecycleDetails(existingOrder));
         return convertToResponse(existingOrder);
     }
 
@@ -864,6 +946,8 @@ public class OrderServiceImpl implements OrderService {
         existingOrder.getPaymentDetails().setStatus(PaymentDetails.PaymentStatus.FAILED);
 
         existingOrder = orderEntityRepository.save(existingOrder);
+        auditService.recordFor(currentUser, AuditAction.PAYMENT_FAILED, AuditTargetType.ORDER,
+                existingOrder.getOrderId(), lifecycleDetails(existingOrder));
         return convertToResponse(existingOrder);
     }
 
@@ -909,14 +993,16 @@ public class OrderServiceImpl implements OrderService {
         return quantities;
     }
 
+    // Dashboard figures for one calendar day: PAID orders whose EFFECTIVE PAID TIME (paidAt, else
+    // createdAt) falls on that day - the same rule Analytics uses (RevenueQueries).
     @Override
-    public Double sumSalesByDate(LocalDate date) {
-        return orderEntityRepository.sumSalesByDate(date);
+    public BigDecimal sumSalesByDate(LocalDate date) {
+        return Money.zeroIfNull(orderEntityRepository.sumPaidRevenue(date.atStartOfDay(), date.plusDays(1).atStartOfDay()));
     }
 
     @Override
     public Long countByOrderDate(LocalDate date) {
-        return orderEntityRepository.countByOrderDate(date);
+        return orderEntityRepository.countPaidOrders(date.atStartOfDay(), date.plusDays(1).atStartOfDay());
     }
 
     @Override

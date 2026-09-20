@@ -50,7 +50,11 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-                if (jwtUtil.validateToken(jwt, userDetails)) {
+                // The account is reloaded on every request, so a deactivated account's still-unexpired
+                // token is refused immediately, and validateToken also rejects a token whose
+                // tokenVersion no longer matches the account's (password reset / deactivation).
+                // Either way the request continues unauthenticated -> 401.
+                if (userDetails.isEnabled() && jwtUtil.validateToken(jwt, userDetails)) {
                     UsernamePasswordAuthenticationToken authenticationToken =
                             new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                     authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

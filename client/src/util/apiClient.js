@@ -1,6 +1,8 @@
 import axios from "axios";
 
-export const API_BASE_URL = "http://localhost:8080/api/v1.0";
+// Backend API base URL from VITE_API_BASE_URL (client/.env.local / build environment; vite.config.js
+// supplies the local default in development). Public by nature - never put secrets in VITE_ vars.
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
@@ -27,7 +29,7 @@ apiClient.interceptors.response.use(
 
         if (status === 401) {
             if (isLoginRequest) {
-                error.friendlyMessage = backendMessage || "Email or password is incorrect";
+                error.friendlyMessage = backendMessage || "Email/mobile or password is incorrect";
             } else {
                 localStorage.removeItem("token");
                 localStorage.removeItem("role");

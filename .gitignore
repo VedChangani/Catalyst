@@ -16,3 +16,6 @@ billingsoftware/target/
 # IntelliJ
 .idea/
 *.iml
+
+# Uploads
+billingsoftware/uploads/*

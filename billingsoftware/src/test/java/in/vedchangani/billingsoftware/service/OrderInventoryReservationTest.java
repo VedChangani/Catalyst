@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service;
 
+import in.vedchangani.billingsoftware.TestMoney;
 import in.vedchangani.billingsoftware.entity.ItemEntity;
 import in.vedchangani.billingsoftware.entity.OrderEntity;
 import in.vedchangani.billingsoftware.entity.OrderItemEntity;
@@ -52,11 +53,14 @@ class OrderInventoryReservationTest {
     @Mock
     private RazorpayService razorpayService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderServiceImpl orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService);
+        orderService = new OrderServiceImpl(orderEntityRepository, userRepository, itemRepository, razorpayService, auditService);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("alice@example.com", null, List.of()));
     }
@@ -71,6 +75,8 @@ class OrderInventoryReservationTest {
         alice.setId(1L);
         alice.setEmail("alice@example.com");
         alice.setRole("ROLE_USER");
+        alice.setName("Alice");
+        alice.setMobile("9876543210");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
     }
 
@@ -87,8 +93,6 @@ class OrderInventoryReservationTest {
 
     private OrderRequest aRequest(String paymentMethod, OrderRequest.OrderItemRequest... lines) {
         return OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod(paymentMethod)
                 .cartItems(Arrays.asList(lines))
                 .build();
@@ -226,7 +230,7 @@ class OrderInventoryReservationTest {
         verify(itemRepository, times(1)).commitReservedStock(anyString(), anyInt());
         assertEquals(1, response.getItems().size());
         assertEquals(5, response.getItems().get(0).getQuantity());
-        assertEquals(250.0, response.getSubtotal(), 0.0001);
+        TestMoney.assertMoney("250.0", response.getSubtotal());
     }
 
     @Test
@@ -276,7 +280,7 @@ class OrderInventoryReservationTest {
     }
 
     private OrderItemEntity orderLine(String itemId, int quantity) {
-        return OrderItemEntity.builder().itemId(itemId).name(itemId).price(1.0).quantity(quantity).build();
+        return OrderItemEntity.builder().itemId(itemId).name(itemId).price(new BigDecimal("1.0")).quantity(quantity).build();
     }
 
     @Test

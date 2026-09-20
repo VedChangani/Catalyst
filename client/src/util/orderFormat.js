@@ -48,3 +48,6 @@ export const channelTone = (channel) => {
 };
 
 export const statusLabel = (status) => (status || "").replaceAll("_", " ");
+
+// Rupee amount with 2 decimals, matching the existing "₹x.xx" display used across the app.
+export const formatCurrency = (amount) => `₹${Number(amount || 0).toFixed(2)}`;

@@ -9,7 +9,7 @@ import PosCustomerSelector from "../../components/PosCustomerSelector/PosCustome
 import LoadingState from "../../ui/LoadingState.jsx";
 import PageShell from "../../ui/PageShell.jsx";
 
-// Cashier (and admin) in-store billing: the same catalog, cart and payment components as the
+// Cashier-only (ROLE_CASHIER) in-store billing: the same catalog, cart and payment components as the
 // storefront, plus an optional, explicit registered-customer selection. Orders are sent to
 // POST /pos/orders; the backend decides the sales channel and the creating staff member.
 const PosBilling = () => {
@@ -63,7 +63,7 @@ const PosBilling = () => {
                         setCustomerName={setCustomerName}
                     />
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                <div className="min-h-0 max-h-[50vh] overflow-y-auto px-2 py-2">
                     <CartItems />
                 </div>
                 <div className="border-t-2 border-ink bg-paper px-4 py-4">

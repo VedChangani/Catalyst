@@ -10,6 +10,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +21,10 @@ import java.util.UUID;
 @Table(name = "tbl_orders", indexes = {
         // Unique (multiple NULLs allowed): one client checkout attempt = at most one order.
         // Declared as an index so Hibernate's ddl-auto=update also creates it on an existing table.
-        @Index(name = "uk_tbl_orders_idempotency_key", columnList = "idempotency_key", unique = true)
+        @Index(name = "uk_tbl_orders_idempotency_key", columnList = "idempotency_key", unique = true),
+        // Admin analytics: status-filtered, created_at-ranged aggregates. Non-unique, so it is safe
+        // on existing data; ddl-auto=update adds it to the existing table when the name is missing.
+        @Index(name = "idx_tbl_orders_status_created", columnList = "order_status, created_at")
 })
 @Data
 @AllArgsConstructor
@@ -45,9 +49,14 @@ public class OrderEntity {
 
     private String customerName;
     private String phoneNumber;
-    private Double subtotal;
-    private Double tax;
-    private Double grandTotal;
+    // Money: DECIMAL(19,4) so the historical DOUBLE values (whose unrounded 1% tax can carry up to
+    // 4 decimals) convert without rounding; new orders are always whole paise (see util/Money).
+    @Column(precision = 19, scale = 4)
+    private BigDecimal subtotal;
+    @Column(precision = 19, scale = 4)
+    private BigDecimal tax;
+    @Column(precision = 19, scale = 4)
+    private BigDecimal grandTotal;
     private LocalDateTime createdAt;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
@@ -60,7 +69,8 @@ public class OrderEntity {
     @JoinColumn(name = "user_id", nullable = true)
     private UserEntity user;
 
-    // Staff member (cashier/admin) who entered a POS sale. NULL for ONLINE orders and for legacy
+    // Staff member who entered a POS sale: the cashier (POS creation is CASHIER-only; some older POS
+    // orders were entered by an admin before that restriction). NULL for ONLINE orders and legacy
     // orders. This is creator identity only - it never grants or defines customer ownership.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by_id", nullable = true)

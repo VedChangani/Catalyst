@@ -21,7 +21,9 @@ const money = (value) => `₹${Number(value ?? 0).toFixed(2)}`;
 // One order from the customer's own history, as a receipt-style summary. Everything shown -
 // including item names, unit prices and line totals - is the historical snapshot returned by the
 // backend; the current catalog is never consulted. Ownership is decided by the backend only.
-const CustomerOrderDetail = () => {
+// Also used for a cashier's own POS sale (from My Sales): the same GET /orders/{id} returns it
+// only when the cashier entered that sale, so only the back link differs.
+const CustomerOrderDetail = ({backTo = "/orders", backLabel = "My Orders"}) => {
     const {orderId} = useParams();
     const navigate = useNavigate();
     const [order, setOrder] = useState(null);
@@ -65,8 +67,8 @@ const CustomerOrderDetail = () => {
     }, [orderId, reloadToken]);
 
     const backButton = (
-        <Button variant="secondary" size="sm" onClick={() => navigate("/orders")}>
-            ← Back to My Orders
+        <Button variant="secondary" size="sm" onClick={() => navigate(backTo)}>
+            ← Back to {backLabel}
         </Button>
     );
 

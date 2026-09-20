@@ -1,5 +1,6 @@
 package in.vedchangani.billingsoftware.service.impl;
 
+import in.vedchangani.billingsoftware.service.AuditService;
 import in.vedchangani.billingsoftware.entity.CategoryEntity;
 import in.vedchangani.billingsoftware.exception.ConflictException;
 import in.vedchangani.billingsoftware.exception.ResourceNotFoundException;
@@ -7,11 +8,15 @@ import in.vedchangani.billingsoftware.repository.CategoryRepository;
 import in.vedchangani.billingsoftware.repository.ItemRepository;
 import in.vedchangani.billingsoftware.service.FileUploadService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -24,6 +29,13 @@ import static org.mockito.Mockito.*;
  */
 @ExtendWith(MockitoExtension.class)
 class CategoryServiceImplTest {
+
+    // Upload directory for these tests (deleted by JUnit), never the real uploads/ folder.
+    @TempDir
+    Path uploadsTempDir;
+
+    @Mock
+    private AuditService auditService;
 
     @Mock
     private CategoryRepository categoryRepository;
@@ -47,7 +59,8 @@ class CategoryServiceImplTest {
 
     @Test
     void delete_rejectsCategoryStillReferencedByItems() {
-        categoryService = new CategoryServiceImpl(categoryRepository, fileUploadService, itemRepository);
+        categoryService = new CategoryServiceImpl(categoryRepository, fileUploadService, itemRepository, auditService);
+        ReflectionTestUtils.setField(categoryService, "uploadsDir", uploadsTempDir.toString());
         CategoryEntity category = aCategory(1L, "CAT1", "Beverages");
         when(categoryRepository.findByCategoryId("CAT1")).thenReturn(Optional.of(category));
         when(itemRepository.countByCategoryId(1L)).thenReturn(3);
@@ -60,7 +73,8 @@ class CategoryServiceImplTest {
 
     @Test
     void delete_rejectsNonExistentCategory() {
-        categoryService = new CategoryServiceImpl(categoryRepository, fileUploadService, itemRepository);
+        categoryService = new CategoryServiceImpl(categoryRepository, fileUploadService, itemRepository, auditService);
+        ReflectionTestUtils.setField(categoryService, "uploadsDir", uploadsTempDir.toString());
         when(categoryRepository.findByCategoryId("GHOST")).thenReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> categoryService.delete("GHOST"));

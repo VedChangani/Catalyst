@@ -104,7 +104,7 @@ class IdempotentOrderCreationTest {
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
-                .role(role).name(name).build());
+                .role(role).name(name).mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
     }
 
     private ItemEntity anItem(String itemId, CategoryEntity category) {
@@ -123,7 +123,7 @@ class IdempotentOrderCreationTest {
     }
 
     private String onlineBody(String method, int quantity) {
-        return "{\"customerName\":\"Aaron\",\"phoneNumber\":\"9999999999\",\"paymentMethod\":\"" + method
+        return "{\"paymentMethod\":\"" + method
                 + "\",\"cartItems\":" + cart(item, quantity) + "}";
     }
 
@@ -268,15 +268,16 @@ class IdempotentOrderCreationTest {
     }
 
     @Test
-    void sameKey_differentPaymentMethodNamePhoneOrItem_isConflict() throws Exception {
+    void sameKey_differentPaymentMethodOrItem_isConflict() throws Exception {
         String key = key();
         assertEquals(201, online(customerA, onlineBody("UPI", 2), key).getResponse().getStatus());
 
         assertEquals(409, online(customerA, onlineBody("CASH", 2), key).getResponse().getStatus());
-        assertEquals(409, online(customerA,
-                onlineBody("UPI", 2).replace("9999999999", "8888888888"), key).getResponse().getStatus());
-        assertEquals(409, online(customerA,
-                onlineBody("UPI", 2).replace("Aaron", "Someone Else"), key).getResponse().getStatus());
+        // identity fields are not part of the ONLINE request any more: they are ignored, so the same
+        // logical request with a different name/phone is a plain replay, not a different request
+        assertEquals(200, online(customerA,
+                onlineBody("UPI", 2).replaceFirst("\\{", "{\"customerName\":\"Someone Else\",\"phoneNumber\":\"8888888888\","), key)
+                .getResponse().getStatus());
         assertEquals(409, online(customerA,
                 onlineBody("UPI", 2).replace(item.getItemId(), otherItem.getItemId()), key).getResponse().getStatus());
 
@@ -332,7 +333,7 @@ class IdempotentOrderCreationTest {
         MvcResult byAdmin = pos(admin, "ADMIN", posBody("CASH", 1, null), key);
 
         assertEquals(409, byOtherCashier.getResponse().getStatus());
-        assertEquals(409, byAdmin.getResponse().getStatus());
+        assertEquals(403, byAdmin.getResponse().getStatus()); // an admin cannot create POS sales at all
         assertFalse(byOtherCashier.getResponse().getContentAsString().contains(orderId));
         assertEquals(1, orderEntityRepository.count());
         assertStock(99, 0);
@@ -343,7 +344,7 @@ class IdempotentOrderCreationTest {
         String key = key();
         assertEquals(201, online(customerA, onlineBody("CASH", 1), key).getResponse().getStatus());
 
-        assertEquals(409, pos(admin, "ADMIN", posBody("CASH", 1, null), key).getResponse().getStatus());
+        assertEquals(403, pos(admin, "ADMIN", posBody("CASH", 1, null), key).getResponse().getStatus());
 
         assertEquals(1, orderEntityRepository.count());
     }
@@ -568,7 +569,7 @@ class IdempotentOrderCreationTest {
     private OrderEntity bareOrder(String idempotencyKey) {
         return OrderEntity.builder()
                 .customerName("X").phoneNumber("9999999999")
-                .subtotal(10.0).tax(0.1).grandTotal(10.1)
+                .subtotal(new BigDecimal("10.0")).tax(new BigDecimal("0.1")).grandTotal(new BigDecimal("10.1"))
                 .paymentMethod(PaymentMethod.CASH).orderStatus(OrderStatus.PAID)
                 .paymentDetails(PaymentDetails.builder().status(PaymentDetails.PaymentStatus.COMPLETED).build())
                 .inventoryReserved(false).user(customerA)

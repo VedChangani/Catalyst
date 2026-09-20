@@ -2,17 +2,17 @@ import {useContext, useState} from "react";
 import {AppContext} from "../../context/AppContext.jsx";
 import DisplayCategory from "../../components/DisplayCategory/DisplayCategory.jsx";
 import DisplayItems from "../../components/DisplayItems/DisplayItems.jsx";
-import CustomerForm from "../../components/CustomerForm/CustomerForm.jsx";
-import CartItems from "../../components/CartItems/CartItems.jsx";
-import CartSummary from "../../components/CartSummary/CartSummary.jsx";
 import LoadingState from "../../ui/LoadingState.jsx";
 import PageShell from "../../ui/PageShell.jsx";
+import Button from "../../ui/Button.jsx";
+import {useNavigate} from "react-router-dom";
 
 const Explore = () => {
-    const {categories, isCatalogLoading} = useContext(AppContext);
+    const {categories, isCatalogLoading, cartItems, cartCount} = useContext(AppContext);
+    const navigate = useNavigate();
+    // display-only running total; the backend prices the order at checkout
+    const subtotal = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
     const [selectedCategory, setSelectedCategory] = useState("");
-    const [customerName, setCustomerName] = useState("");
-    const [mobileNumber, setMobileNumber] = useState("");
 
     if (isCatalogLoading) {
         return (
@@ -27,7 +27,7 @@ const Explore = () => {
             <section className="flex min-h-0 flex-col gap-5">
                 <div className="border-2 border-ink bg-surface p-4 shadow-[3px_3px_0_#111827] sm:p-5">
                     <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-muted">Store floor</p>
-                    <h1 className="mt-1 text-3xl font-extrabold tracking-tight">Browse → Add to cart → Bill</h1>
+                    <h1 className="mt-1 text-3xl font-extrabold tracking-tight">Browse → Add to cart → Check out</h1>
                     <div className="mt-4 overflow-x-auto pb-1">
                         <DisplayCategory
                             selectedCategory={selectedCategory}
@@ -39,29 +39,24 @@ const Explore = () => {
                     <DisplayItems selectedCategory={selectedCategory} />
                 </div>
             </section>
-            <aside className="flex min-h-[32rem] flex-col border-2 border-ink bg-surface shadow-[3px_3px_0_#111827] lg:min-h-0">
+            <aside className="flex flex-col self-start border-2 border-ink bg-surface shadow-[3px_3px_0_#111827]">
                 <div className="border-b-2 border-ink bg-primary/10 px-4 py-3">
-                    <h2 className="text-lg font-extrabold uppercase tracking-wide">Cart / Billing</h2>
-                    <p className="text-xs font-bold text-muted">Customer · Items · Total · Checkout</p>
+                    <h2 className="text-lg font-extrabold uppercase tracking-wide">Your cart</h2>
+                    <p className="text-xs font-bold text-muted">Review items and check out on the cart page</p>
                 </div>
-                <div className="border-b-2 border-ink px-4 py-3">
-                    <CustomerForm
-                        customerName={customerName}
-                        mobileNumber={mobileNumber}
-                        setMobileNumber={setMobileNumber}
-                        setCustomerName={setCustomerName}
-                    />
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-                    <CartItems />
-                </div>
-                <div className="border-t-2 border-ink bg-paper px-4 py-4">
-                    <CartSummary
-                        customerName={customerName}
-                        mobileNumber={mobileNumber}
-                        setMobileNumber={setMobileNumber}
-                        setCustomerName={setCustomerName}
-                    />
+                <div className="space-y-3 px-4 py-4">
+                    <div className="flex justify-between text-sm font-bold">
+                        <span>Items</span>
+                        <span>{cartCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold">
+                        <span>Subtotal</span>
+                        <span>₹{subtotal.toFixed(2)}</span>
+                    </div>
+                    <Button variant="primary" className="w-full" onClick={() => navigate("/cart")}>
+                        <i className="bi bi-cart3"></i>
+                        {cartCount > 0 ? "View cart & checkout" : "Open cart"}
+                    </Button>
                 </div>
             </aside>
         </div>

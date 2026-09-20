@@ -2,28 +2,33 @@ import {assets} from "../../assets/assets.js";
 import {Link, useLocation, useNavigate} from "react-router-dom";
 import {useContext, useState} from "react";
 import {AppContext} from "../../context/AppContext.jsx";
+import {homePathFor, NAV_ITEMS, ROLE_ADMIN, ROLE_USER} from "../../util/roles.js";
 
 const Menubar = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const {setAuthData, auth} = useContext(AppContext);
+    const {setAuthData, auth, cartCount, clearCart} = useContext(AppContext);
     const [open, setOpen] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
 
     const logout = () => {
         localStorage.removeItem("token");
         localStorage.removeItem("role");
+        clearCart(); // never carry one session's cart into the next
         setAuthData(null, null);
         navigate("/login");
     };
 
     const isActive = (path) => {
-        // an open order detail (/orders/:id) still belongs to the Order History entry
-        return location.pathname === path || (path === "/orders" && location.pathname.startsWith("/orders/"));
+        // an open order detail (/orders/:id, /sales/:id) still belongs to its list's entry
+        return location.pathname === path
+            || ((path === "/orders" || path === "/sales") && location.pathname.startsWith(`${path}/`));
     };
 
-    const isAdmin = auth?.role === "ROLE_ADMIN";
-    const isCashier = auth?.role === "ROLE_CASHIER";
+    const isAdmin = auth?.role === ROLE_ADMIN;
+    // the cart is a customer-only feature: staff never see the cart entry or its count
+    const isCustomer = auth?.role === ROLE_USER;
+    const navItems = NAV_ITEMS[auth?.role] ?? [];
 
     const linkClass = (path) =>
         `border-2 border-transparent px-3 py-1.5 text-sm font-extrabold uppercase tracking-wide transition-colors duration-150 ${
@@ -35,7 +40,7 @@ const Menubar = () => {
     return (
         <header className="sticky top-0 z-40 border-b-2 border-ink bg-surface">
             <nav className="relative mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
-                <Link to={isCashier ? "/pos" : "/explore"} className="flex shrink-0 items-center gap-2">
+                <Link to={homePathFor(auth?.role)} className="flex shrink-0 items-center gap-2">
                     <img src={assets.logo} alt="Logo" className="h-10 w-auto border-2 border-ink bg-paper p-0.5" />
                     <span className="hidden text-sm font-extrabold uppercase tracking-[0.16em] sm:inline">Retail Billing</span>
                 </Link>
@@ -56,60 +61,33 @@ const Menubar = () => {
                     className={`${menuOpen ? "flex" : "hidden"} absolute left-0 top-full w-full flex-col gap-4 border-b-2 border-ink bg-surface p-4 lg:static lg:ml-6 lg:flex lg:w-auto lg:flex-1 lg:flex-row lg:items-center lg:border-0 lg:p-0`}
                 >
                     <ul className="flex flex-1 flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
-                        {isCashier ? (
-                            <li>
-                                <Link className={linkClass('/pos')} to="/pos" onClick={() => setMenuOpen(false)}>
-                                    POS
+                        {navItems.map(({to, label}) => (
+                            <li key={to}>
+                                <Link className={linkClass(to)} to={to} onClick={() => setMenuOpen(false)}>
+                                    {label}
                                 </Link>
                             </li>
-                        ) : (
-                            <>
-                                <li>
-                                    <Link className={linkClass('/explore')} to="/explore" onClick={() => setMenuOpen(false)}>
-                                        Explore
-                                    </Link>
-                                </li>
-                                {isAdmin && (
-                                    <li>
-                                        <Link className={linkClass('/pos')} to="/pos" onClick={() => setMenuOpen(false)}>
-                                            POS
-                                        </Link>
-                                    </li>
-                                )}
-                                <li>
-                                    <Link className={linkClass('/orders')} to="/orders" onClick={() => setMenuOpen(false)}>
-                                        Order History
-                                    </Link>
-                                </li>
-                            </>
-                        )}
-                        {isAdmin && (
-                            <>
-                                <li>
-                                    <Link className={linkClass('/dashboard')} to="/dashboard" onClick={() => setMenuOpen(false)}>
-                                        Dashboard
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link className={linkClass('/items')} to="/items" onClick={() => setMenuOpen(false)}>
-                                        Manage Items
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link className={linkClass('/category')} to="/category" onClick={() => setMenuOpen(false)}>
-                                        Manage Categories
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link className={linkClass('/users')} to="/users" onClick={() => setMenuOpen(false)}>
-                                        Manage Users
-                                    </Link>
-                                </li>
-                            </>
-                        )}
+                        ))}
                     </ul>
 
-                    <div className="relative lg:ml-auto">
+                    {isCustomer && (
+                        <Link
+                            to="/cart"
+                            onClick={() => setMenuOpen(false)}
+                            aria-label={`Cart, ${cartCount} ${cartCount === 1 ? "item" : "items"}`}
+                            className={`relative flex items-center gap-2 border-2 px-3 py-1.5 font-extrabold transition-colors duration-150 lg:ml-auto ${
+                                location.pathname === "/cart"
+                                    ? "border-ink bg-primary text-white shadow-[2px_2px_0_#111827]"
+                                    : "border-ink bg-paper shadow-[2px_2px_0_#111827] hover:bg-primary/10"
+                            }`}
+                        >
+                            <i className="bi bi-cart3 text-lg" aria-hidden="true"></i>
+                            <span data-testid="cart-count" className="min-w-5 border-2 border-ink bg-coral px-1 text-center text-xs font-extrabold text-ink">
+                                {cartCount}
+                            </span>
+                        </Link>
+                    )}
+                    <div className={`relative ${isCustomer ? "" : "lg:ml-auto"}`}>
                         <button
                             type="button"
                             className="flex items-center gap-2 border-2 border-ink bg-paper px-2 py-1 shadow-[2px_2px_0_#111827]"
@@ -126,15 +104,32 @@ const Menubar = () => {
                                 aria-labelledby="navbarDropdown"
                             >
                                 <li>
-                                    <a href="#!" className="block px-4 py-2 text-sm font-bold hover:bg-primary/10">
-                                        Settings
-                                    </a>
+                                    <Link
+                                        to="/account"
+                                        className="block px-4 py-2 text-sm font-bold hover:bg-primary/10"
+                                        onClick={() => {
+                                            setOpen(false);
+                                            setMenuOpen(false);
+                                        }}
+                                    >
+                                        Account
+                                    </Link>
                                 </li>
-                                <li>
-                                    <a href="#!" className="block px-4 py-2 text-sm font-bold hover:bg-primary/10">
-                                        Activity log
-                                    </a>
-                                </li>
+                                {/* Customers and cashiers: their own log. Admins use the System Activity nav entry. */}
+                                {!isAdmin && (
+                                    <li>
+                                        <Link
+                                            to="/activity"
+                                            className="block px-4 py-2 text-sm font-bold hover:bg-primary/10"
+                                            onClick={() => {
+                                                setOpen(false);
+                                                setMenuOpen(false);
+                                            }}
+                                        >
+                                            Activity log
+                                        </Link>
+                                    </li>
+                                )}
                                 <li className="border-t-2 border-ink">
                                     <a
                                         href="#!"

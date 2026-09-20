@@ -38,8 +38,6 @@ class RequestValidationTest {
     @Test
     void orderRequest_rejectsEmptyCart() {
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod("CASH")
                 .cartItems(List.of())
                 .build();
@@ -51,8 +49,6 @@ class RequestValidationTest {
     @Test
     void orderRequest_rejectsInvalidQuantity() {
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod("CASH")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 0)))
                 .build();
@@ -64,8 +60,6 @@ class RequestValidationTest {
     @Test
     void orderRequest_rejectsBlankItemId() {
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod("CASH")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest(" ", 1)))
                 .build();
@@ -75,23 +69,23 @@ class RequestValidationTest {
     }
 
     @Test
-    void orderRequest_rejectsInvalidPhoneNumber() {
-        OrderRequest request = OrderRequest.builder()
+    void posOrderRequest_rejectsInvalidPhoneNumber() {
+        // ONLINE orders no longer carry a phone number (it comes from the account); the POS
+        // billing phone is still validated.
+        PosOrderRequest request = PosOrderRequest.builder()
                 .customerName("Walk-in Customer")
                 .phoneNumber("not-a-phone")
                 .paymentMethod("CASH")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 1)))
                 .build();
 
-        Set<ConstraintViolation<OrderRequest>> violations = validator.validate(request);
+        Set<ConstraintViolation<PosOrderRequest>> violations = validator.validate(request);
         assertFalse(violations.isEmpty());
     }
 
     @Test
     void orderRequest_acceptsAValidRequest() {
         OrderRequest request = OrderRequest.builder()
-                .customerName("Walk-in Customer")
-                .phoneNumber("9999999999")
                 .paymentMethod("CASH")
                 .cartItems(List.of(new OrderRequest.OrderItemRequest("ITEM1", 1)))
                 .build();
@@ -110,43 +104,35 @@ class RequestValidationTest {
     }
 
     @Test
-    void userRequest_rejectsInvalidEmailAndShortPassword() {
-        UserRequest request = UserRequest.builder()
+    void cashierCreateRequest_rejectsInvalidEmailAndShortPassword() {
+        CashierCreateRequest request = CashierCreateRequest.builder()
                 .name("Alice")
                 .email("not-an-email")
+                .mobile("9876543210")
                 .password("123")
-                .role("ROLE_USER")
                 .build();
 
-        Set<ConstraintViolation<UserRequest>> violations = validator.validate(request);
+        Set<ConstraintViolation<CashierCreateRequest>> violations = validator.validate(request);
         assertFalse(violations.isEmpty());
     }
 
     @Test
-    void userRequest_rejectsInvalidRole() {
-        UserRequest request = UserRequest.builder()
+    void cashierCreateRequest_requiresEveryField() {
+        Set<ConstraintViolation<CashierCreateRequest>> violations =
+                validator.validate(CashierCreateRequest.builder().build());
+        assertTrue(violations.size() >= 4);
+    }
+
+    @Test
+    void cashierCreateRequest_acceptsAValidRequest() {
+        CashierCreateRequest request = CashierCreateRequest.builder()
                 .name("Alice")
                 .email("alice@example.com")
+                .mobile("9876543210")
                 .password("password123")
-                .role("SUPERUSER")
                 .build();
 
-        Set<ConstraintViolation<UserRequest>> violations = validator.validate(request);
-        assertFalse(violations.isEmpty());
-    }
-
-    @Test
-    void userRequest_acceptsAllThreeRoles() {
-        for (String role : new String[]{"ROLE_USER", "ROLE_CASHIER", "ROLE_ADMIN"}) {
-            UserRequest request = UserRequest.builder()
-                    .name("Alice")
-                    .email("alice@example.com")
-                    .password("password123")
-                    .role(role)
-                    .build();
-
-            assertTrue(validator.validate(request).isEmpty(), role + " should be accepted");
-        }
+        assertTrue(validator.validate(request).isEmpty());
     }
 
     private ItemRequest.ItemRequestBuilder aValidItemRequestBuilder() {
