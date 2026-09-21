@@ -16,7 +16,7 @@ export const isKnownRole = (role) => KNOWN_ROLES.includes(role);
 export const homePathFor = (role) => {
     if (role === ROLE_ADMIN) return "/dashboard";
     if (role === ROLE_CASHIER) return "/pos";
-    if (role === ROLE_USER) return "/explore";
+    if (role === ROLE_USER) return "/home";
     return "/login";
 };
 
@@ -26,6 +26,7 @@ export const rootPathFor = (token, role) => (token && isKnownRole(role) ? homePa
 // Account and (for customers/cashiers) the personal Activity Log live in the header dropdown.
 export const NAV_ITEMS = {
     [ROLE_USER]: [
+        {to: "/home", label: "Home"},
         {to: "/explore", label: "Shop"},
         {to: "/cart", label: "Cart"},
         {to: "/orders", label: "My Orders"},

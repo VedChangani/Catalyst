@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/util/cart.test.js src/util/accountValidation.test.js src/util/activityFormat.test.js src/util/authSession.test.js src/util/roles.test.js src/util/razorpayCheckout.test.js src/util/posOrderRequest.test.js src/util/latestOnly.test.js",
+    "test": "node --test src/util/cart.test.js src/util/accountValidation.test.js src/util/activityFormat.test.js src/util/authSession.test.js src/util/roles.test.js src/util/razorpayCheckout.test.js src/util/posOrderRequest.test.js src/util/latestOnly.test.js src/util/customerHome.test.js src/util/passwordReset.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -8,6 +8,8 @@ public enum AuditAction {
 
     PROFILE_UPDATED,
     PASSWORD_CHANGED,
+    // Customer reset their own password with an emailed one-time code (forgot-password flow).
+    PASSWORD_RESET_COMPLETED,
 
     CASHIER_CREATED,
     CASHIER_DEACTIVATED,

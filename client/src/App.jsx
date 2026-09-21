@@ -3,10 +3,12 @@ import {Navigate, Route, Routes, useLocation} from "react-router-dom";
 import Dashboard from "./pages/Dashboard/Dashboard.jsx";
 import ManageCategory from "./pages/ManageCategory/ManageCategory.jsx";
 import ManageItems from "./pages/ManageItems/ManageItems.jsx";
+import CustomerHome from "./pages/CustomerHome/CustomerHome.jsx";
 import Explore from "./pages/Explore/Explore.jsx";
 import {Toaster} from "react-hot-toast";
 import Login from "./pages/Login/Login.jsx";
 import Register from "./pages/Register/Register.jsx";
+import ForgotPassword from "./pages/ForgotPassword/ForgotPassword.jsx";
 import OrderHistory from "./pages/OrderHistory/OrderHistory.jsx";
 import CustomerOrderDetail from "./pages/OrderHistory/CustomerOrderDetail.jsx";
 import PosBilling from "./pages/PosBilling/PosBilling.jsx";
@@ -58,7 +60,7 @@ const App = () => {
     const location = useLocation();
     const {auth} = useContext(AppContext);
 
-    const isAuthScreen = location.pathname === "/login" || location.pathname === "/register" || location.pathname === "/";
+    const isAuthScreen = location.pathname === "/login" || location.pathname === "/register" || location.pathname === "/forgot-password" || location.pathname === "/";
 
     return (
         <div className="app-shell">
@@ -94,6 +96,7 @@ const App = () => {
                         />
                     }
                 />
+                <Route path="/home" element={<ProtectedRoute element={<CustomerHome />} allowedRoles={[ROLE_USER]} />} />
                 <Route
                     path="/explore"
                     element={
@@ -128,6 +131,7 @@ const App = () => {
 
                 <Route path="/login" element={<LoginRoute element={<Login />} />} />
                 <Route path="/register" element={<LoginRoute element={<Register />} />} />
+                <Route path="/forgot-password" element={<LoginRoute element={<ForgotPassword />} />} />
                 <Route
                     path="/orders"
                     element={

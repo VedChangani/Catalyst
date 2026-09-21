@@ -9,6 +9,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.Immutable;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -58,10 +60,16 @@ public class AuditLogEntity {
     @Column(name = "actor_role", length = 20, nullable = false, updatable = false)
     private String actorRole;
 
+    // VARCHAR, not a native MySQL ENUM: an ENUM column is fixed at creation and ddl-auto=update never
+    // extends it, so every new AuditAction value would fail to insert on an existing database.
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Enumerated(EnumType.STRING)
     @Column(name = "action", length = 40, nullable = false, updatable = false)
     private AuditAction action;
 
+    // VARCHAR, not a native MySQL ENUM: an ENUM column is fixed at creation and ddl-auto=update never
+    // extends it, so every new AuditAction value would fail to insert on an existing database.
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Enumerated(EnumType.STRING)
     @Column(name = "target_type", length = 20, updatable = false)
     private AuditTargetType targetType;
