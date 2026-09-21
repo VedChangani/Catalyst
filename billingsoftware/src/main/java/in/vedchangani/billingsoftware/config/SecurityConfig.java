@@ -48,6 +48,9 @@ public class SecurityConfig {
                         .requestMatchers("/login", "/uploads/**").permitAll()
                         // Customer self-registration (always ROLE_USER - see UserServiceImpl.registerCustomer)
                         .requestMatchers(HttpMethod.POST, "/register").permitAll()
+                        // Customer forgot-password (emailed one-time code); anonymous by nature. Only enabled
+                        // ROLE_USER accounts can ever complete it - see PasswordResetServiceImpl.
+                        .requestMatchers(HttpMethod.POST, "/forgot-password", "/reset-password").permitAll()
 
                         // ---- USER + CASHIER + ADMIN: product/category browsing (read-only) ----
                         .requestMatchers(HttpMethod.GET, "/categories", "/items").hasAnyRole("USER", "CASHIER", "ADMIN")

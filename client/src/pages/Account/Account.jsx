@@ -236,7 +236,7 @@ const Account = () => {
                                    value={passwords.currentPassword} onChange={onPasswordChange} autoComplete="current-password"
                                    error={passwordErrors.currentPassword} aria-invalid={Boolean(passwordErrors.currentPassword)} />
                             <Input label="New password" id="new-password" name="newPassword" type="password"
-                                   placeholder="At least 8 characters, a letter and a number"
+                                   placeholder="8+ characters with upper, lower, number, symbol"
                                    value={passwords.newPassword} onChange={onPasswordChange} autoComplete="new-password"
                                    error={passwordErrors.newPassword} aria-invalid={Boolean(passwordErrors.newPassword)} />
                             <Input label="Confirm new password" id="confirm-new-password" name="confirmNewPassword" type="password"

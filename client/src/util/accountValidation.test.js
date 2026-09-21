@@ -27,18 +27,18 @@ test("a blank mobile is only allowed for an account that never had one", () => {
 });
 
 test("password policy", () => {
-    assert.equal(passwordPolicyError("Abcdefg1"), null);
-    for (const bad of ["", "short1", "onlyletters", "12345678", "a1".repeat(40)]) {
+    assert.equal(passwordPolicyError("Abcdefg1!"), null);
+    for (const bad of ["", "short1", "onlyletters", "12345678", "a1".repeat(40), "Abcdefg1", "abcdefg1!", "ABCDEFG1!", "Abcdefgh!"]) {
         assert.ok(passwordPolicyError(bad), bad);
     }
 });
 
 test("password change requires current, a policy-passing different new password, and a matching confirmation", () => {
-    const good = {currentPassword: "Oldpass123", newPassword: "Newpass456", confirmNewPassword: "Newpass456"};
+    const good = {currentPassword: "Oldpass123!", newPassword: "Newpass456!", confirmNewPassword: "Newpass456!"};
     assert.deepEqual(validatePasswordChange(good), {});
     assert.ok(validatePasswordChange({...good, currentPassword: ""}).currentPassword);
     assert.ok(validatePasswordChange({...good, newPassword: "short", confirmNewPassword: "short"}).newPassword);
-    assert.ok(validatePasswordChange({...good, confirmNewPassword: "Different1"}).confirmNewPassword);
+    assert.ok(validatePasswordChange({...good, confirmNewPassword: "Different1!"}).confirmNewPassword);
     assert.ok(validatePasswordChange({...good, confirmNewPassword: ""}).confirmNewPassword);
-    assert.ok(validatePasswordChange({...good, newPassword: "Oldpass123", confirmNewPassword: "Oldpass123"}).newPassword);
+    assert.ok(validatePasswordChange({...good, newPassword: "Oldpass123!", confirmNewPassword: "Oldpass123!"}).newPassword);
 });

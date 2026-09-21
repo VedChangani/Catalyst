@@ -42,6 +42,18 @@ services:
       APP_ADMIN_EMAIL: ${APP_ADMIN_EMAIL:-}
       APP_ADMIN_MOBILE: ${APP_ADMIN_MOBILE:-}
       APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-}
+      # Customer forgot-password: the OTP secret is required; mail is optional here unless you run
+      # the backend with SPRING_PROFILES_ACTIVE=prod (then MAIL_HOST and APP_MAIL_FROM are required).
+      APP_PASSWORD_RESET_OTP_SECRET: ${APP_PASSWORD_RESET_OTP_SECRET:?set APP_PASSWORD_RESET_OTP_SECRET in .env}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
+      APP_MAIL_FROM: ${APP_MAIL_FROM:-}
+      # nginx (frontend service) appends the real client address to X-Forwarded-For
+      APP_TRUST_FORWARDED_FOR: "true"
     volumes:
       - uploads-data:/app/uploads
     ports:

@@ -7,6 +7,7 @@ import Button from "../../ui/Button.jsx";
 import Input from "../../ui/Input.jsx";
 import AuthBrandPanel from "../../components/AuthBrandPanel/AuthBrandPanel.jsx";
 import {startSession} from "../../util/authSession.js";
+import {passwordPolicyError} from "../../util/accountValidation.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -42,12 +43,9 @@ const validate = (data) => {
     } else if (!normalizeMobile(data.mobile)) {
         errors.mobile = "Enter a valid 10-digit Indian mobile number";
     }
-    if (!data.password) {
-        errors.password = "Password is required";
-    } else if (data.password.length < 8 || data.password.length > 72) {
-        errors.password = "Password must be between 8 and 72 characters";
-    } else if (!/[A-Za-z]/.test(data.password) || !/[0-9]/.test(data.password)) {
-        errors.password = "Password must contain at least one letter and one number";
+    const passwordProblem = passwordPolicyError(data.password);
+    if (passwordProblem) {
+        errors.password = passwordProblem;
     }
     if (data.confirmPassword !== data.password) {
         errors.confirmPassword = "Passwords do not match";
@@ -168,7 +166,7 @@ const Register = () => {
                             name="password"
                             id="password"
                             autoComplete="new-password"
-                            placeholder="At least 8 characters, a letter and a number"
+                            placeholder="8+ characters with upper, lower, number, symbol"
                             onChange={onChangeHandler}
                             value={data.password}
                             error={errors.password}

@@ -10,7 +10,7 @@ test("/ sends a signed-out visitor to /login", () => {
 });
 
 test("/ sends a signed-in user to their role's home - never the login page", () => {
-    assert.equal(rootPathFor("jwt", ROLE_USER), "/explore");
+    assert.equal(rootPathFor("jwt", ROLE_USER), "/home");
     assert.equal(rootPathFor("jwt", ROLE_CASHIER), "/pos");
     assert.equal(rootPathFor("jwt", ROLE_ADMIN), "/dashboard");
 });
