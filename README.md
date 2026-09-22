@@ -4,13 +4,6 @@
 
 A retail commerce and store operations platform with online shopping, point-of-sale billing, inventory management, payments, analytics, and administration.
 
-## Live Demo
-
-[Open Catalyst](https://catalyst-dun-two.vercel.app)
-
-## Repository
-[GitHub Repository](YOUR_GITHUB_REPO_URL)
-
 ## Overview
 
 Catalyst serves three kinds of users from one backend and one web app:
