@@ -15,24 +15,10 @@ import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
-/**
- * One persisted activity/audit event. Write-once: @Immutable, no setters, every column
- * updatable=false, and AuditLogRepository exposes no update or delete operation.
- *
- * The actor is stored as a snapshot (database id, public id, name and role AT THE TIME of the
- * event) rather than as a foreign-key relationship, so the audit trail never depends on - and
- * can never block or cascade with - later changes to the user table. actorUserId is null only for
- * SYSTEM events.
- *
- * `details` holds a small JSON object built by server code only (see AuditServiceImpl); it never
- * contains passwords, hashes, tokens, token versions, signatures, secrets or raw request bodies.
- */
 @Entity
 @Immutable
 @Table(name = "tbl_audit_log", indexes = {
-        // "my activity": one actor's events, newest first
         @Index(name = "idx_tbl_audit_log_actor_created", columnList = "actor_user_id, created_at"),
-        // system activity: everything newest first, optionally narrowed by action
         @Index(name = "idx_tbl_audit_log_created", columnList = "created_at"),
         @Index(name = "idx_tbl_audit_log_action_created", columnList = "action, created_at")
 })
@@ -60,15 +46,11 @@ public class AuditLogEntity {
     @Column(name = "actor_role", length = 20, nullable = false, updatable = false)
     private String actorRole;
 
-    // VARCHAR, not a native MySQL ENUM: an ENUM column is fixed at creation and ddl-auto=update never
-    // extends it, so every new AuditAction value would fail to insert on an existing database.
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Enumerated(EnumType.STRING)
     @Column(name = "action", length = 40, nullable = false, updatable = false)
     private AuditAction action;
 
-    // VARCHAR, not a native MySQL ENUM: an ENUM column is fixed at creation and ddl-auto=update never
-    // extends it, so every new AuditAction value would fail to insert on an existing database.
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Enumerated(EnumType.STRING)
     @Column(name = "target_type", length = 20, updatable = false)
@@ -85,7 +67,6 @@ public class AuditLogEntity {
 
     @PrePersist
     void onCreate() {
-        // microsecond precision = what the column stores, so ordering in memory and in SQL agree
         this.createdAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
     }
 }

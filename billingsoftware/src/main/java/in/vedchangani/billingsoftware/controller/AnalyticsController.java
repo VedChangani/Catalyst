@@ -11,8 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 
-// ADMIN-only: gated by the existing /admin/** rule in SecurityConfig. Only collects the query
-// parameters; validation and the database queries live in AnalyticsService.
 @RestController
 @RequestMapping("/admin/analytics")
 @RequiredArgsConstructor

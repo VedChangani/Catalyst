@@ -12,7 +12,6 @@ const Login = () => {
     const {setAuthData} = useContext(AppContext);
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
-    // identifier = email address or mobile number; the backend resolves which account it is.
     const [data, setData] = useState({
         identifier: "",
         password: "",
@@ -70,11 +69,6 @@ const Login = () => {
                     onChange={onChangeHandler}
                     value={data.password}
                 />
-                <div className="-mt-4 text-right lg:-mt-[2vh]">
-                    <Link to="/forgot-password" className="text-sm font-bold text-primary underline-offset-2 hover:underline">
-                        Forgot password?
-                    </Link>
-                </div>
                 <Button type="submit" variant="primary" size="lg" className="w-full rounded-lg border-primary! py-3.5 shadow-none! lg:py-[1.6vh]" disabled={loading}>
                     {loading ? "Signing in..." : <>Sign in <i className="bi bi-arrow-right" aria-hidden="true"></i></>}
                 </Button>

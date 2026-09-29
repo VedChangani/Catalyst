@@ -41,18 +41,13 @@ public class AuditServiceImpl implements AuditService {
     private static final int MAX_DETAILS_LENGTH = 1000;
     private static final Set<String> FILTERABLE_ROLES =
             Set.of("ROLE_USER", "ROLE_CASHIER", "ROLE_ADMIN", AuditLogEntity.SYSTEM_ROLE);
-    // Defence in depth: even though every call site builds its own metadata, a key that looks like
-    // credential material never reaches the database.
     private static final Pattern SENSITIVE_KEY =
             Pattern.compile("(?i).*(password|passwd|hash|token|secret|signature|authorization|credential).*");
-    // Newest first, id as the deterministic tie-breaker for events in the same microsecond.
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     private final AuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
-
-    // ---- writing ----
 
     @Override
     @Transactional
@@ -125,13 +120,10 @@ public class AuditServiceImpl implements AuditService {
         }
     }
 
-    // ---- reading ----
-
     @Override
     @Transactional(readOnly = true)
     public PagedResponse<ActivityResponse> getMyActivity(Integer page, Integer size) {
         UserEntity me = currentUser();
-        // Ownership is the query itself: only rows whose actor is the authenticated caller.
         return toPage(auditLogRepository.findByActorUserId(me.getId(), pageable(page, size)));
     }
 
@@ -156,7 +148,6 @@ public class AuditServiceImpl implements AuditService {
         if (actorPublicId != null) {
             UserEntity actor = userRepository.findByUserId(actorPublicId).orElse(null);
             if (actor == null) {
-                // an unknown actor has no events - never fall through to "no actor filter"
                 return toPage(Page.empty(pageable));
             }
             actorId = actor.getId();

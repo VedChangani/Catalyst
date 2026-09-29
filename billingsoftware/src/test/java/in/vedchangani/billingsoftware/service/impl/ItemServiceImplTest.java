@@ -32,18 +32,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for the inventory-related mapping/behavior added to ItemServiceImpl in the admin
- * inventory management batch: create-time mapping (including required stockQuantity, forced
- * reservedQuantity=0, defaulted lowStockThreshold/active), response mapping (availableQuantity),
- * general update (never touches stock, 404, optimistic-lock passthrough), the dedicated
- * adjustStock path (atomic repository call only, never load-mutate-save), and the delete guard
- * against items with reservedQuantity > 0.
- */
 @ExtendWith(MockitoExtension.class)
 class ItemServiceImplTest {
 
-    // Uploads written by these tests go here (deleted by JUnit), never into the real uploads/ folder.
     @TempDir
     Path uploadsTempDir;
 
@@ -87,8 +78,6 @@ class ItemServiceImplTest {
         return file;
     }
 
-    // ---- A. create/response mapping ----
-
     @Test
     void add_mapsSkuStockAndForcesReservedQuantityToZero() throws Exception {
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
@@ -103,10 +92,8 @@ class ItemServiceImplTest {
 
         ItemResponse response = itemService.add(request, aFile());
 
-        // the image URL comes from configuration (app.uploads.public-base-url), not a hardcoded host
         assertTrue(response.getImgUrl().startsWith("https://images.example.test/uploads/"), response.getImgUrl());
         assertFalse(response.getImgUrl().contains("localhost"));
-        // the file was written to the configured (temporary) directory, not the real uploads/ folder
         String fileName = response.getImgUrl().substring(response.getImgUrl().lastIndexOf('/') + 1);
         assertTrue(java.nio.file.Files.exists(uploadsTempDir.resolve(fileName)));
         assertFalse(java.nio.file.Files.exists(java.nio.file.Paths.get("uploads").resolve(fileName)));
@@ -142,8 +129,6 @@ class ItemServiceImplTest {
         assertEquals(0, response.getReservedQuantity());
     }
 
-    // ---- B. general update ----
-
     @Test
     void update_updatesMetadataButNeverTouchesStock() {
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
@@ -162,7 +147,6 @@ class ItemServiceImplTest {
         assertEquals("Cheeseburger", response.getName());
         assertEquals(false, response.getActive());
         assertEquals(8, response.getLowStockThreshold());
-        // stock untouched by the general update path
         assertEquals(15, response.getStockQuantity());
         assertEquals(4, response.getReservedQuantity());
         assertEquals(11, response.getAvailableQuantity());
@@ -182,9 +166,6 @@ class ItemServiceImplTest {
 
     @Test
     void update_stockQuantityFieldDoesNotExistOnUpdateRequest_soStockCannotChangeThroughGeneralUpdate() {
-        // ItemUpdateRequest has no stockQuantity/reservedQuantity setter at all - this is enforced
-        // structurally by the DTO, verified here by exercising a full update and confirming stock
-        // is unchanged regardless of what metadata was edited.
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
         ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
         ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
@@ -212,8 +193,6 @@ class ItemServiceImplTest {
                 () -> itemService.update("ITEM1", ItemUpdateRequest.builder().name("X").build()));
     }
 
-    // ---- C. stock adjustment ----
-
     @Test
     void adjustStock_positiveDeltaRestocksUsingAtomicQuery() {
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
@@ -228,7 +207,6 @@ class ItemServiceImplTest {
 
         assertEquals(15, response.getStockQuantity());
         verify(itemRepository).adjustStockQuantity("ITEM1", 5);
-        // never load-mutate-save for stock
         verify(itemRepository, never()).save(any());
     }
 
@@ -271,8 +249,6 @@ class ItemServiceImplTest {
         verify(itemRepository, never()).adjustStockQuantity(any(), anyInt());
     }
 
-    // ---- D. delete safety guard ----
-
     @Test
     void deleteItem_blockedWhenReservedQuantityPositive() {
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
@@ -301,7 +277,6 @@ class ItemServiceImplTest {
 
     @Test
     void deleteItem_allowedWhenReservedQuantityIsNull() {
-        // legacy row from before the inventory batch - reservedQuantity was never backfilled yet.
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);
         ReflectionTestUtils.setField(itemService, "uploadsPublicBaseUrl", "https://images.example.test/uploads/");
         ReflectionTestUtils.setField(itemService, "uploadsDir", uploadsTempDir.toString());
@@ -315,7 +290,6 @@ class ItemServiceImplTest {
         verify(itemRepository).deleteUnreservedById(1L);
     }
 
-    // Mock-level check only: the real "row is gone" proof is ItemDeletionPersistenceTest (H2, real SQL).
     @Test
     void deleteItem_neverReportsSuccess_whenNoRowWasDeleted() {
         itemService = new ItemServiceImpl(fileUploadService, categoryRepository, itemRepository, auditService);

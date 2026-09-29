@@ -30,17 +30,12 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-/**
- * A6: the caller's own account - GET/PATCH /account/me and PATCH /account/me/password - through the
- * real SecurityConfig, JWT filter (real bearer tokens), services and the H2 database.
- * Deliberately NOT @Transactional so every service transaction really commits.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AccountManagementTest {
 
-    private static final String PASSWORD = "Secret123";
+    private static final String PASSWORD = "Secret123!";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
@@ -72,8 +67,6 @@ class AccountManagementTest {
         categoryRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private UserEntity account(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
@@ -131,8 +124,6 @@ class AccountManagementTest {
         return perform(bearer(json(patch("/account/me/password"), body), token));
     }
 
-    // ---- profile: read ----
-
     @Test
     void everyRole_readsOwnProfile_withoutSecrets() throws Exception {
         for (UserEntity actor : new UserEntity[]{customer, cashier, admin}) {
@@ -162,8 +153,6 @@ class AccountManagementTest {
         assertEquals(401, perform(bearer(get("/account/me"), "not.a.jwt")).getResponse().getStatus());
     }
 
-    // ---- profile: update ----
-
     @Test
     void user_updatesOwnName() throws Exception {
         String token = login(customer.getEmail(), PASSWORD);
@@ -174,7 +163,6 @@ class AccountManagementTest {
         assertEquals("Cara Renamed", body(result).get("account").get("name").asText());
         assertTrue(body(result).get("token").isNull(), "no new token unless the email changed");
         assertEquals("Cara Renamed", reload(customer).getName());
-        // the existing token is still good
         assertEquals(200, perform(bearer(get("/account/me"), token)).getResponse().getStatus());
     }
 
@@ -206,13 +194,11 @@ class AccountManagementTest {
         assertEquals(200, result.getResponse().getStatus());
         assertEquals(newEmail, reload(customer).getEmail());
         assertEquals(newEmail, body(result).get("account").get("email").asText());
-        // the JWT subject was the old email: that token is revoked, the fresh one works
         String freshToken = body(result).get("token").asText();
         assertEquals(401, perform(bearer(get("/account/me"), oldToken)).getResponse().getStatus());
         MvcResult me = perform(bearer(get("/account/me"), freshToken));
         assertEquals(200, me.getResponse().getStatus());
         assertEquals(newEmail, body(me).get("email").asText());
-        // login follows the new database state
         assertEquals(200, loginStatus(newEmail, PASSWORD));
         assertEquals(401, loginStatus(oldEmail, PASSWORD));
     }
@@ -280,8 +266,6 @@ class AccountManagementTest {
         }
     }
 
-    // ---- ownership / privilege fields ----
-
     @Test
     void clientSuppliedUserId_cannotTargetAnotherAccount() throws Exception {
         String token = login(customer.getEmail(), PASSWORD);
@@ -291,7 +275,6 @@ class AccountManagementTest {
         MvcResult result = patchAccount(token, update("Hijacked", "hijack-" + s + "@example.com", TestMobiles.next(), targeting));
 
         assertEquals(200, result.getResponse().getStatus());
-        // it changed the CALLER, and only the caller
         assertEquals("Hijacked", reload(customer).getName());
         UserEntity untouched = reload(other);
         assertEquals("Otto Other", untouched.getName());
@@ -299,10 +282,9 @@ class AccountManagementTest {
         assertEquals(other.getMobile(), untouched.getMobile());
         assertEquals(other.getUserId(), untouched.getUserId());
 
-        // and the same for the password endpoint
         String newToken = body(result).get("token").asText();
         assertEquals(204, changePassword(newToken, "{\"userId\":\"" + other.getUserId() + "\",\"currentPassword\":\"" + PASSWORD
-                + "\",\"newPassword\":\"Changed456\",\"confirmNewPassword\":\"Changed456\"}").getResponse().getStatus());
+                + "\",\"newPassword\":\"Changed456!\",\"confirmNewPassword\":\"Changed456!\"}").getResponse().getStatus());
         assertTrue(passwordEncoder.matches(PASSWORD, reload(other).getPassword()));
     }
 
@@ -321,11 +303,8 @@ class AccountManagementTest {
         assertEquals(0, after.currentTokenVersion());
         assertTrue(passwordEncoder.matches(PASSWORD, after.getPassword()));
         assertEquals("ROLE_USER", body(result).get("account").get("role").asText());
-        // still not an admin
         assertEquals(403, perform(bearer(get("/admin/cashiers"), token)).getResponse().getStatus());
     }
-
-    // ---- account status ----
 
     @Test
     void disabledAccount_staysBlocked_andCannotReactivateItself() throws Exception {
@@ -335,12 +314,9 @@ class AccountManagementTest {
                         .user(admin.getEmail()).roles("ADMIN")), "{\"enabled\":false}"));
         assertFalse(reload(cashier).isAccountEnabled());
 
-        // the old token is refused, so the self-service endpoint is unreachable...
         assertEquals(401, patchAccount(token, update("Casey", cashier.getEmail(), cashier.getMobile(), "\"enabled\":true")).getResponse().getStatus());
         assertEquals(401, perform(bearer(get("/account/me"), token)).getResponse().getStatus());
-        // ...login is blocked...
         assertEquals(401, loginStatus(cashier.getEmail(), PASSWORD));
-        // ...and nothing flipped the flag
         assertFalse(reload(cashier).isAccountEnabled());
     }
 
@@ -354,28 +330,24 @@ class AccountManagementTest {
         assertEquals(200, perform(bearer(get("/account/me"), token)).getResponse().getStatus());
     }
 
-    // ---- password ----
-
     @Test
     void passwordChange_withCorrectCurrentPassword_worksAndRevokesTheOldSession() throws Exception {
         String oldToken = login(customer.getEmail(), PASSWORD);
         String oldHash = reload(customer).getPassword();
 
-        MvcResult result = changePassword(oldToken, passwordBody(PASSWORD, "Brandnew789", "Brandnew789"));
+        MvcResult result = changePassword(oldToken, passwordBody(PASSWORD, "Brandnew789!", "Brandnew789!"));
 
         assertEquals(204, result.getResponse().getStatus());
         assertEquals("", result.getResponse().getContentAsString());
         UserEntity after = reload(customer);
         assertNotEquals(oldHash, after.getPassword());
         assertTrue(after.getPassword().startsWith("$2"), "stored as a BCrypt hash");
-        assertNotEquals("Brandnew789", after.getPassword());
-        assertTrue(passwordEncoder.matches("Brandnew789", after.getPassword()));
+        assertNotEquals("Brandnew789!", after.getPassword());
+        assertTrue(passwordEncoder.matches("Brandnew789!", after.getPassword()));
         assertEquals(1, after.currentTokenVersion());
 
-        // old password no longer works, new one does
         assertEquals(401, loginStatus(customer.getEmail(), PASSWORD));
-        String newToken = login(customer.getEmail(), "Brandnew789");
-        // the pre-change token is revoked; the one from the new login works
+        String newToken = login(customer.getEmail(), "Brandnew789!");
         assertEquals(401, perform(bearer(get("/account/me"), oldToken)).getResponse().getStatus());
         assertEquals(200, perform(bearer(get("/account/me"), newToken)).getResponse().getStatus());
     }
@@ -385,7 +357,7 @@ class AccountManagementTest {
         String token = login(customer.getEmail(), PASSWORD);
         String hash = reload(customer).getPassword();
 
-        MvcResult result = changePassword(token, passwordBody("Wrong12345", "Brandnew789", "Brandnew789"));
+        MvcResult result = changePassword(token, passwordBody("Wrong12345", "Brandnew789!", "Brandnew789!"));
 
         assertEquals(400, result.getResponse().getStatus());
         assertEquals("Current password is incorrect", body(result).get("message").asText());
@@ -394,7 +366,6 @@ class AccountManagementTest {
         assertFalse(raw.contains(hash));
         assertEquals(hash, reload(customer).getPassword());
         assertEquals(0, reload(customer).currentTokenVersion());
-        // the session is intact
         assertEquals(200, perform(bearer(get("/account/me"), token)).getResponse().getStatus());
     }
 
@@ -403,14 +374,13 @@ class AccountManagementTest {
         String token = login(customer.getEmail(), PASSWORD);
         String hash = reload(customer).getPassword();
 
-        assertEquals(400, changePassword(token, passwordBody(PASSWORD, "Brandnew789", "Different789")).getResponse().getStatus());
-        for (String weak : new String[]{"short1", "onlyletters", "12345678"}) {
+        assertEquals(400, changePassword(token, passwordBody(PASSWORD, "Brandnew789!", "Different789")).getResponse().getStatus());
+        for (String weak : new String[]{"short1", "onlyletters", "12345678", "password123", "Password123", "Password!", "12345678!", "Aa1!aaa", "aA1!" + "x".repeat(69)}) {
             assertEquals(400, changePassword(token, passwordBody(PASSWORD, weak, weak)).getResponse().getStatus(), weak);
         }
         assertEquals(400, changePassword(token, passwordBody(PASSWORD, PASSWORD, PASSWORD)).getResponse().getStatus());
-        // current password is mandatory, and a new password alone is not enough
-        assertEquals(400, changePassword(token, "{\"newPassword\":\"Brandnew789\",\"confirmNewPassword\":\"Brandnew789\"}").getResponse().getStatus());
-        assertEquals(400, changePassword(token, passwordBody("", "Brandnew789", "Brandnew789")).getResponse().getStatus());
+        assertEquals(400, changePassword(token, "{\"newPassword\":\"Brandnew789!\",\"confirmNewPassword\":\"Brandnew789!\"}").getResponse().getStatus());
+        assertEquals(400, changePassword(token, passwordBody("", "Brandnew789!", "Brandnew789!")).getResponse().getStatus());
         assertEquals(hash, reload(customer).getPassword());
     }
 
@@ -418,8 +388,8 @@ class AccountManagementTest {
     void cashierAndAdmin_changeTheirOwnPassword_withTheSameEndpoint() throws Exception {
         for (UserEntity actor : new UserEntity[]{cashier, admin}) {
             String token = login(actor.getEmail(), PASSWORD);
-            assertEquals(204, changePassword(token, passwordBody(PASSWORD, "Staffpass123", "Staffpass123")).getResponse().getStatus());
-            assertEquals(200, loginStatus(actor.getEmail(), "Staffpass123"));
+            assertEquals(204, changePassword(token, passwordBody(PASSWORD, "Staffpass123!", "Staffpass123!")).getResponse().getStatus());
+            assertEquals(200, loginStatus(actor.getEmail(), "Staffpass123!"));
         }
     }
 
@@ -429,17 +399,15 @@ class AccountManagementTest {
         String hash = reload(customer).getPassword();
         String profile = perform(bearer(get("/account/me"), token)).getResponse().getContentAsString();
         String updated = patchAccount(token, update("Cara", customer.getEmail(), customer.getMobile(), null)).getResponse().getContentAsString();
-        String failedChange = changePassword(token, passwordBody("Wrong12345", "Brandnew789", "Brandnew789")).getResponse().getContentAsString();
+        String failedChange = changePassword(token, passwordBody("Wrong12345", "Brandnew789!", "Brandnew789!")).getResponse().getContentAsString();
 
         for (String response : new String[]{profile, updated, failedChange}) {
             assertFalse(response.contains(PASSWORD), response);
-            assertFalse(response.contains("Brandnew789"), response);
+            assertFalse(response.contains("Brandnew789!"), response);
             assertFalse(response.contains(hash), response);
             assertFalse(response.toLowerCase().contains("tokenversion"), response);
         }
     }
-
-    // ---- historical order snapshot ----
 
     @Test
     void profileChange_doesNotAlterExistingOrderSnapshots() throws Exception {
@@ -462,7 +430,6 @@ class AccountManagementTest {
         OrderEntity order = orderEntityRepository.findByOrderId(orderId).orElseThrow();
         assertEquals("Cara Customer", order.getCustomerName());
         assertEquals(originalMobile, order.getPhoneNumber());
-        // the order still belongs to the (renamed) account, and it can still open it
         assertEquals(customer.getId(), order.getUser().getId());
         String fresh = body(changed).get("token").asText();
         assertEquals(200, perform(bearer(get("/orders/" + orderId), fresh)).getResponse().getStatus());

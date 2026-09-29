@@ -26,10 +26,6 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * URL-level authorization for the retail roles, through the real SecurityConfig filter chain.
- * Services are mocked: this only proves who may reach which endpoint.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -56,8 +52,6 @@ class PosSecurityTest {
     private static OrderCreationResult created() {
         return new OrderCreationResult(OrderResponse.builder().orderId("ORD1").build(), false);
     }
-
-    // ---- POS endpoints ----
 
     @Test
     @WithMockUser(roles = "USER")
@@ -114,12 +108,9 @@ class PosSecurityTest {
 
         ArgumentCaptor<PosOrderRequest> captor = ArgumentCaptor.forClass(PosOrderRequest.class);
         verify(orderService).createPosOrder(captor.capture(), isNull());
-        // the only association the DTO can carry is the explicit customer selection - unset here
         assertNull(captor.getValue().getCustomerUserId());
         assertEquals("CASH", captor.getValue().getPaymentMethod());
     }
-
-    // ---- CASHIER is not an admin ----
 
     @Test
     @WithMockUser(roles = "CASHIER")
@@ -135,7 +126,6 @@ class PosSecurityTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/dashboard")).andExpect(status().isForbidden());
         mockMvc.perform(get("/orders/latest")).andExpect(status().isForbidden());
-        // orders cannot be hard-deleted by anyone any more (A9): the route has no DELETE handler
         mockMvc.perform(delete("/orders/ORD1")).andExpect(status().isMethodNotAllowed());
         verifyNoInteractions(userService, itemService);
     }
@@ -163,8 +153,6 @@ class PosSecurityTest {
 
         mockMvc.perform(get("/items")).andExpect(status().isOk());
     }
-
-    // ---- existing roles unchanged ----
 
     @Test
     @WithMockUser(roles = "USER")

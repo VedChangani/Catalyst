@@ -9,8 +9,6 @@ import Badge from "../../ui/Badge.jsx";
 import Button from "../../ui/Button.jsx";
 import {formatDate, orderStatusTone, paymentStatusTone, statusLabel} from "../../util/orderFormat.js";
 
-// The cashier's own POS sales: the backend returns only the orders this cashier entered
-// (createdBy = the authenticated cashier), whether or not a registered customer was linked.
 const MySales = () => {
     const navigate = useNavigate();
     const [sales, setSales] = useState([]);

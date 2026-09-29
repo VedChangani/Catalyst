@@ -18,11 +18,6 @@ import {
 
 const money = (value) => `₹${Number(value ?? 0).toFixed(2)}`;
 
-// One order from the customer's own history, as a receipt-style summary. Everything shown -
-// including item names, unit prices and line totals - is the historical snapshot returned by the
-// backend; the current catalog is never consulted. Ownership is decided by the backend only.
-// Also used for a cashier's own POS sale (from My Sales): the same GET /orders/{id} returns it
-// only when the cashier entered that sale, so only the back link differs.
 const CustomerOrderDetail = ({backTo = "/orders", backLabel = "My Orders"}) => {
     const {orderId} = useParams();
     const navigate = useNavigate();
@@ -50,8 +45,6 @@ const CustomerOrderDetail = ({backTo = "/orders", backLabel = "My Orders"}) => {
                 }
                 console.error(requestError);
                 const status = requestError.response?.status;
-                // Missing and not-yours look identical to the customer: nothing is revealed
-                // about whether someone else's order exists.
                 if (status === 403 || status === 404) {
                     setError({message: "We couldn't find this order in your purchase history.", retry: false});
                 } else {

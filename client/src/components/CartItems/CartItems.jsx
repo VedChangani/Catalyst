@@ -6,9 +6,6 @@ import EmptyState from "../../ui/EmptyState.jsx";
 const CartItems = () => {
     const {cartItems, itemsData, removeFromCart, updateQuantity} = useContext(AppContext);
 
-    // Cross-checks each cart line against the latest fetched catalog data (display/UX only - the
-    // backend re-validates authoritatively at checkout). A line with no matching catalog entry
-    // means the item was removed/deactivated since it was added to the cart.
     const availabilityFor = (itemId) => {
         const catalogItem = itemsData.find(item => item.itemId === itemId);
         if (!catalogItem) {

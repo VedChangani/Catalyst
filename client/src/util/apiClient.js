@@ -1,14 +1,11 @@
 import axios from "axios";
 
-// Backend API base URL from VITE_API_BASE_URL (client/.env.local / build environment; vite.config.js
-// supplies the local default in development). Public by nature - never put secrets in VITE_ vars.
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 const apiClient = axios.create({
     baseURL: API_BASE_URL,
 });
 
-// Attach the JWT to every request automatically - services no longer repeat this per call.
 apiClient.interceptors.request.use((config) => {
     const token = localStorage.getItem("token");
     if (token) {
@@ -17,9 +14,6 @@ apiClient.interceptors.request.use((config) => {
     return config;
 });
 
-// Normalize every failure into a single `error.friendlyMessage` that any screen can show
-// directly, and handle the two cross-cutting cases (expired/invalid session, network outage)
-// in one place instead of in every component.
 apiClient.interceptors.response.use(
     (response) => response,
     (error) => {

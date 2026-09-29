@@ -13,10 +13,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 
-/**
- * A9: CORS origins come from configuration (app.cors.allowed-origins / APP_CORS_ALLOWED_ORIGINS,
- * default http://localhost:5173 for local development) and are always explicit.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

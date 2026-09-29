@@ -14,11 +14,6 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Verifies the Jakarta Bean Validation constraints declared on the request DTOs: an empty cart,
- * an invalid quantity, a blank itemId, an invalid phone number, and a bare-bones invalid payment
- * verification payload are all rejected before a controller/service ever sees them.
- */
 class RequestValidationTest {
 
     private static ValidatorFactory factory;
@@ -70,8 +65,6 @@ class RequestValidationTest {
 
     @Test
     void posOrderRequest_rejectsInvalidPhoneNumber() {
-        // ONLINE orders no longer carry a phone number (it comes from the account); the POS
-        // billing phone is still validated.
         PosOrderRequest request = PosOrderRequest.builder()
                 .customerName("Walk-in Customer")
                 .phoneNumber("not-a-phone")
@@ -96,7 +89,6 @@ class RequestValidationTest {
     @Test
     void paymentVerificationRequest_rejectsMissingFields() {
         PaymentVerificationRequest request = new PaymentVerificationRequest();
-        // orderId only - the rest of the Razorpay verification payload is missing.
         request.setOrderId("ORD1");
 
         Set<ConstraintViolation<PaymentVerificationRequest>> violations = validator.validate(request);
@@ -129,7 +121,7 @@ class RequestValidationTest {
                 .name("Alice")
                 .email("alice@example.com")
                 .mobile("9876543210")
-                .password("password123")
+                .password("CatalystTest123!")
                 .build();
 
         assertTrue(validator.validate(request).isEmpty());

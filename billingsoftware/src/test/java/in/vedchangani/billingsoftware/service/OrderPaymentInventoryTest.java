@@ -29,12 +29,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Call-level tests for how verifyPayment / failPayment / cancelOrder drive the atomic stock
- * operations: which ones run, in what order, only after which guards, and what a 0-row result
- * does. Real counters and real transaction rollback are covered by
- * OrderPaymentInventoryIntegrationTest against H2.
- */
 @ExtendWith(MockitoExtension.class)
 class OrderPaymentInventoryTest {
 
@@ -77,8 +71,6 @@ class OrderPaymentInventoryTest {
         return OrderItemEntity.builder().itemId(itemId).name(itemId).price(new BigDecimal("10.0")).quantity(quantity).build();
     }
 
-    // A UPI order as Batch 3 leaves it: PENDING_PAYMENT, holding a reservation, with a Razorpay
-    // order already attached.
     private OrderEntity aReservedPendingOrder(Boolean inventoryReserved, OrderItemEntity... lines) {
         OrderEntity order = OrderEntity.builder()
                 .orderId("ORD1")
@@ -115,8 +107,6 @@ class OrderPaymentInventoryTest {
     private void savesReturnTheirArgument() {
         when(orderEntityRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
     }
-
-    // =========================== verifyPayment ===========================
 
     @Test
     void verify_commitsEveryReservedLineInAscendingItemOrder_thenSavesPaid() {
@@ -214,9 +204,6 @@ class OrderPaymentInventoryTest {
         verify(itemRepository, never()).commitReservedStock(anyString(), anyInt());
         verify(itemRepository, never()).releaseReservedStock(anyString(), anyInt());
         verify(orderEntityRepository, never()).save(any());
-        // Batch 14: the signature IS now evaluated for a terminal order, but only to decide whether a
-        // genuine late payment should be logged (see LatePaymentHandlingTest); it never changes
-        // the order or stock, which is what this test guards.
     }
 
     @Test
@@ -230,8 +217,6 @@ class OrderPaymentInventoryTest {
         assertEquals(OrderStatus.PAID, response.getOrderStatus());
         verifyNoInteractions(itemRepository);
     }
-
-    // =========================== failPayment ===========================
 
     @Test
     void failPayment_releasesEveryReservedLineInAscendingItemOrder_thenSavesPaymentFailed() {
@@ -275,8 +260,6 @@ class OrderPaymentInventoryTest {
 
         verify(itemRepository, times(1)).releaseReservedStock(anyString(), anyInt());
     }
-
-    // =========================== cancelOrder ===========================
 
     @Test
     void cancel_releasesEveryReservedLine_thenSavesCancelled() {
@@ -325,8 +308,6 @@ class OrderPaymentInventoryTest {
         assertEquals(OrderStatus.CANCELLED, orderService.cancelOrder("ORD1").getOrderStatus());
         verifyNoInteractions(itemRepository);
     }
-
-    // =========================== transition races (sequential semantics) ===========================
 
     @Test
     void verifyThenCancel_cancelIsRejected_andCommittedStockIsNeverReleased() {

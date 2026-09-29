@@ -30,17 +30,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * End-to-end createOrder inventory behavior against the H2 "test" datasource, through the real
- * transactional OrderService proxy: real reserve/commit/release UPDATEs, real rollback, and the
- * real stale-reservation query.
- *
- * Deliberately NOT @Transactional: the service's own transaction must commit or roll back for
- * real, so assertions read what was actually persisted.
- *
- * H2 runs these sequentially and does not model MySQL InnoDB row locking, so nothing here claims
- * to prove concurrent-request correctness - that remains a dedicated MySQL-backed follow-up.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 class OrderInventoryIntegrationTest {
@@ -90,8 +79,6 @@ class OrderInventoryIntegrationTest {
         userRepository.deleteAll();
     }
 
-    // ---- helpers ----
-
     private ItemEntity anItem(String itemIdPrefix, String name, Integer stock, Integer reserved, Boolean active) {
         return itemRepository.save(ItemEntity.builder()
                 .itemId(itemIdPrefix + "-" + UUID.randomUUID())
@@ -127,8 +114,6 @@ class OrderInventoryIntegrationTest {
                 .orElseThrow();
     }
 
-    // Seeds a UPI order in PENDING_PAYMENT as if it had been created (and had reserved stock)
-    // at the given time. The matching reservedQuantity must be seeded on the items separately.
     private OrderEntity aPendingUpiOrder(LocalDateTime createdAt, Boolean inventoryReserved, OrderItemEntity... lines) {
         OrderEntity order = orderEntityRepository.save(OrderEntity.builder()
                 .customerName("Earlier Customer")
@@ -141,8 +126,6 @@ class OrderInventoryIntegrationTest {
                 .user(user)
                 .items(new ArrayList<>(Arrays.asList(lines)))
                 .build());
-        // @PrePersist stamps "now" and a millisecond-based orderId; back-date it and give it an
-        // id that can't collide with an order the test is about to create.
         order.setCreatedAt(createdAt);
         order.setOrderId("SEED-" + UUID.randomUUID());
         return orderEntityRepository.save(order);
@@ -153,8 +136,6 @@ class OrderInventoryIntegrationTest {
                 .itemId(item.getItemId()).name(item.getName()).price(new BigDecimal("10.0")).quantity(quantity)
                 .build();
     }
-
-    // ---- 1. CASH, sufficient stock ----
 
     @Test
     void cashOrder_withSufficientStock_isPaid_reducesStock_andLeavesNothingReserved() {
@@ -168,8 +149,6 @@ class OrderInventoryIntegrationTest {
         assertEquals(0, after.getReservedQuantity());
         assertEquals(Boolean.FALSE, findCreatedOrder(response).getInventoryReserved());
     }
-
-    // ---- 2. CASH, insufficient stock ----
 
     @Test
     void cashOrder_withInsufficientStock_isConflict_createsNoOrder_andMutatesNoStock() {
@@ -185,8 +164,6 @@ class OrderInventoryIntegrationTest {
         assertEquals(0, after.getReservedQuantity());
     }
 
-    // ---- 3. UPI, sufficient stock ----
-
     @Test
     void upiOrder_withSufficientStock_isPending_keepsStock_andReservesQuantity() {
         ItemEntity burger = anItem("burger", "Burger", 10, 1, true);
@@ -200,11 +177,9 @@ class OrderInventoryIntegrationTest {
         assertEquals(Boolean.TRUE, findCreatedOrder(response).getInventoryReserved());
     }
 
-    // ---- 4. UPI, insufficient stock (already-reserved units are not available) ----
-
     @Test
     void upiOrder_withInsufficientAvailableStock_isConflict_andLeavesNoReservation() {
-        ItemEntity burger = anItem("burger", "Burger", 5, 4, true); // available = 1
+        ItemEntity burger = anItem("burger", "Burger", 5, 4, true);
         long ordersBefore = orderEntityRepository.count();
 
         assertThrows(ConflictException.class,
@@ -215,8 +190,6 @@ class OrderInventoryIntegrationTest {
         assertEquals(5, after.getStockQuantity());
         assertEquals(4, after.getReservedQuantity());
     }
-
-    // ---- 5. Inactive item ----
 
     @Test
     void inactiveItem_cannotBeOrdered_andNothingIsReserved() {
@@ -230,11 +203,8 @@ class OrderInventoryIntegrationTest {
         assertEquals(0, reload(burger).getReservedQuantity());
     }
 
-    // ---- 6. Multi-item rollback ----
-
     @Test
     void multiItemCart_whereALaterItemFails_rollsBackTheEarlierItemsReservation() {
-        // Item ids sort "a-..." < "b-...", so item A is reserved first, then B fails.
         ItemEntity itemA = anItem("a", "Burger", 10, 0, true);
         ItemEntity itemB = anItem("b", "Fries", 1, 0, true);
         long ordersBefore = orderEntityRepository.count();
@@ -260,8 +230,6 @@ class OrderInventoryIntegrationTest {
         assertEquals(0, reload(itemA).getReservedQuantity());
     }
 
-    // ---- 7. Duplicate item ids ----
-
     @Test
     void duplicateItemIds_areCommittedOnceForTheAggregateQuantity() {
         ItemEntity burger = anItem("burger", "Burger", 10, 0, true);
@@ -279,7 +247,6 @@ class OrderInventoryIntegrationTest {
 
     @Test
     void duplicateItemIds_whoseAggregateExceedsStock_areRejectedAsAWhole() {
-        // Each line alone (3) fits in stock 5; together (6) they don't.
         ItemEntity burger = anItem("burger", "Burger", 5, 0, true);
 
         assertThrows(ConflictException.class, () -> orderService.createOrder(
@@ -288,13 +255,11 @@ class OrderInventoryIntegrationTest {
         assertEquals(0, reload(burger).getReservedQuantity());
     }
 
-    // ---- 10. Lazy expiry of stale PENDING_PAYMENT reservations ----
-
     @Test
     void staleReservation_isReleased_whileARecentReservationIsKept() {
-        ItemEntity burger = anItem("burger", "Burger", 10, 3, true); // 3 held by the stale order
-        ItemEntity fries = anItem("fries", "Fries", 10, 2, true);    // 2 held by the recent order
-        ItemEntity cola = anItem("cola", "Cola", 10, 4, true);       // 4 held by the stale order, not in the new cart
+        ItemEntity burger = anItem("burger", "Burger", 10, 3, true);
+        ItemEntity fries = anItem("fries", "Fries", 10, 2, true);
+        ItemEntity cola = anItem("cola", "Cola", 10, 4, true);
         OrderEntity stale = aPendingUpiOrder(LocalDateTime.now().minusMinutes(31), true,
                 orderLine(burger, 3), orderLine(cola, 4));
         OrderEntity recent = aPendingUpiOrder(LocalDateTime.now().minusMinutes(5), true,
@@ -323,16 +288,13 @@ class OrderInventoryIntegrationTest {
         orderService.createOrder(aRequest("UPI", line(burger, 1)));
         orderService.createOrder(aRequest("UPI", line(burger, 1)));
 
-        // 3 - 3 (released once) + 1 + 1
         assertEquals(2, reload(burger).getReservedQuantity());
     }
 
     @Test
     void staleOrdersThatNoLongerAwaitPayment_orNeverReserved_areNotTouched() {
         ItemEntity burger = anItem("burger", "Burger", 10, 0, true);
-        // Legacy pending order from before inventory tracking: never reserved anything.
         OrderEntity legacy = aPendingUpiOrder(LocalDateTime.now().minusHours(3), null, orderLine(burger, 3));
-        // Already paid long ago.
         OrderEntity paid = aPendingUpiOrder(LocalDateTime.now().minusHours(3), false, orderLine(burger, 2));
         paid.setOrderStatus(OrderStatus.PAID);
         orderEntityRepository.save(paid);
@@ -346,12 +308,10 @@ class OrderInventoryIntegrationTest {
                 orderEntityRepository.findById(paid.getId()).orElseThrow().getOrderStatus());
     }
 
-    // ---- Admin full-row save vs. a live reservation ----
-
     @Test
     void adminSaveOfAnItemLoadedBeforeAReservation_isRejected_andTheReservationSurvives() {
         ItemEntity burger = anItem("burger", "Burger", 10, 0, true);
-        ItemEntity staleAdminCopy = reload(burger); // reservedQuantity = 0 in this copy
+        ItemEntity staleAdminCopy = reload(burger);
 
         orderService.createOrder(aRequest("UPI", line(burger, 3)));
 
@@ -362,8 +322,6 @@ class OrderInventoryIntegrationTest {
         assertEquals(3, after.getReservedQuantity());
         assertEquals("Burger", after.getName());
     }
-
-    // ---- 11. Legacy items ----
 
     @Test
     void legacyItemWithNoInventoryValues_cannotBeOrdered_andIsLeftUntouched() {

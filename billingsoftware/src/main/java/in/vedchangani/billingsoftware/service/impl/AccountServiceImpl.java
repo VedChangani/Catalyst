@@ -27,8 +27,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-// Profile fields live on UserEntity only. Existing orders keep the customerName/phoneNumber they
-// were created with (a historical snapshot): nothing here reads or writes orders.
 @Service
 @RequiredArgsConstructor
 public class AccountServiceImpl implements AccountService {
@@ -53,8 +51,6 @@ public class AccountServiceImpl implements AccountService {
         String email = ContactNormalizer.normalizeEmail(request.getEmail());
         String mobile = normalizedMobileFor(me, request.getMobile());
 
-        // Uniqueness against OTHER accounts, on the same normalized values login uses. The unique
-        // indexes still back this up for a concurrent race (reported as a generic 409).
         userRepository.findByEmail(email).filter(other -> !other.getId().equals(me.getId())).ifPresent(other -> {
             throw new ConflictException("An account with this email already exists");
         });
@@ -65,7 +61,6 @@ public class AccountServiceImpl implements AccountService {
         }
 
         boolean emailChanged = !email.equals(me.getEmail());
-        // Only the NAMES of the changed fields are audited - never the old/new values.
         List<String> changedFields = new ArrayList<>();
         if (!request.getName().trim().equals(me.getName())) changedFields.add("name");
         if (emailChanged) changedFields.add("email");
@@ -74,12 +69,9 @@ public class AccountServiceImpl implements AccountService {
         me.setEmail(email);
         me.setMobile(mobile);
         if (emailChanged) {
-            // The JWT subject is the email, so tokens issued for the old email are revoked; the
-            // caller gets a fresh token below and stays signed in.
             me.setTokenVersion(me.currentTokenVersion() + 1);
         }
         userRepository.saveAndFlush(me);
-        // A save that changed nothing is not an event.
         if (!changedFields.isEmpty()) {
             auditService.recordFor(me, AuditAction.PROFILE_UPDATED, AuditTargetType.ACCOUNT, me.getUserId(),
                     Map.of("changedFields", changedFields));
@@ -102,14 +94,10 @@ public class AccountServiceImpl implements AccountService {
         if (passwordEncoder.matches(request.getNewPassword(), me.getPassword())) {
             throw new IllegalArgumentException("New password must be different from the current password");
         }
-        // hash + token-version bump in one statement: every session from before the change ends
         userRepository.updatePasswordAndRevokeTokens(me.getId(), passwordEncoder.encode(request.getNewPassword()));
-        // No password material or token version in the event - only that it happened.
         auditService.recordFor(me, AuditAction.PASSWORD_CHANGED, AuditTargetType.ACCOUNT, me.getUserId(), Map.of());
     }
 
-    // A blank mobile is only acceptable for an account that has none yet; otherwise the account
-    // could not be used for login-by-mobile or checkout any more.
     private String normalizedMobileFor(UserEntity me, String rawMobile) {
         if (rawMobile == null || rawMobile.isBlank()) {
             if (me.getMobile() != null && !me.getMobile().isBlank()) {
@@ -124,8 +112,6 @@ public class AccountServiceImpl implements AccountService {
         return mobile;
     }
 
-    // The account is ALWAYS the authenticated principal's, resolved by the same mechanism the rest
-    // of the application uses (security context -> email -> UserEntity).
     private UserEntity currentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {

@@ -11,8 +11,6 @@ import Input from "../../ui/Input.jsx";
 import Select from "../../ui/Select.jsx";
 import {formatDate, orderStatusTone, paymentStatusTone} from "../../util/orderFormat.js";
 
-// Values the backend (GET /admin/orders) actually accepts. The URL is untrusted input, so anything
-// outside these lists is dropped before it can reach the API.
 const CHANNELS = ["ONLINE", "POS"];
 const ORDER_STATUSES = ["PENDING_PAYMENT", "PAID", "PAYMENT_FAILED", "CANCELLED"];
 const PAYMENT_METHODS = ["CASH", "UPI"];
@@ -20,7 +18,6 @@ const PAYMENT_STATUSES = ["PENDING", "COMPLETED", "FAILED"];
 const PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_SORT = "newest";
-// UI key -> backend sort value (only createdAt / grandTotal are exposed).
 const SORTS = {
     newest: {label: "Newest first", value: "createdAt,desc"},
     oldest: {label: "Oldest first", value: "createdAt,asc"},
@@ -69,7 +66,6 @@ const parseFilters = (searchParams) => {
     };
 };
 
-// Pushes a locally-edited value into the URL only after the user pauses typing.
 const useDebouncedCommit = (draft, committed, commit) => {
     useEffect(() => {
         if (draft === committed) {
@@ -93,7 +89,6 @@ const AdminOrders = () => {
     const [minDraft, setMinDraft] = useState(filters.minAmount);
     const [maxDraft, setMaxDraft] = useState(filters.maxAmount);
 
-    // Any filter change returns to the first page; a plain page change keeps every filter.
     const update = useCallback((changes, {resetPage = true, replace = false} = {}) => {
         setSearchParams((previous) => {
             const next = new URLSearchParams(previous);
@@ -118,7 +113,6 @@ const AdminOrders = () => {
     useDebouncedCommit(minDraft, filters.minAmount, commitMin);
     useDebouncedCommit(maxDraft, filters.maxAmount, commitMax);
 
-    // Back/forward navigation or "clear" changes the URL: mirror it into the text inputs.
     useEffect(() => setSearchDraft(filters.search), [filters.search]);
     useEffect(() => setMinDraft(filters.minAmount), [filters.minAmount]);
     useEffect(() => setMaxDraft(filters.maxAmount), [filters.maxAmount]);
@@ -151,8 +145,6 @@ const AdminOrders = () => {
         if (rangeError) {
             return undefined;
         }
-        // Each request is cancelled when a newer filter/page selection replaces it, so a slow
-        // older response can never overwrite the newer result.
         const controller = new AbortController();
         setLoading(true);
         setLoadError(null);
@@ -184,7 +176,6 @@ const AdminOrders = () => {
         setSearchDraft("");
         setMinDraft("");
         setMaxDraft("");
-        // keeps the chosen sort and page size; only the filters are reset
         const keep = {};
         if (filters.sort !== DEFAULT_SORT) keep.sort = filters.sort;
         if (filters.size !== DEFAULT_PAGE_SIZE) keep.size = filters.size;
@@ -220,7 +211,6 @@ const AdminOrders = () => {
                 </>
             );
         }
-        // legacy order with no linked account: show the billing name recorded on the order
         return (
             <>
                 {order.customerName || "—"} <br/>
@@ -281,7 +271,6 @@ const AdminOrders = () => {
         }
         if (data.content.length === 0) {
             if (data.totalElements > 0) {
-                // e.g. a bookmarked page number that no longer exists
                 return (
                     <EmptyState
                         title="That page is empty"

@@ -8,11 +8,6 @@ import {buildCheckoutOptions} from "../../util/razorpayCheckout.js";
 import {buildOnlineOrderRequest, buildPosOrderRequest} from "../../util/posOrderRequest.js";
 import Button from "../../ui/Button.jsx";
 
-// Online checkout (default): the customer is the logged-in account - no name/phone is collected or
-// sent; the backend snapshots them from the account.
-// posMode (cashier POS billing): billing name/phone are optional, an explicitly selected
-// registered customer (posCustomer, chosen via the backend lookup) is sent by its userId, and a
-// finished sale shows its receipt straight away and resets the cart and the customer selection.
 const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = () => {}, setCustomerName = () => {},
                          posMode = false, posCustomer = null, onSaleFinished,
                          hideWhenEmpty = false, onReceiptClose}) => {
@@ -22,19 +17,8 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
     const [orderDetails, setOrderDetails] = useState(null);
     const [showPopup, setShowPopup] = useState(false);
 
-    // Razorpay can fire more than one terminal event for a single checkout: the success handler
-    // is followed by modal.ondismiss when the popup closes, and a payment.failed is likewise
-    // followed by ondismiss. This ref marks a checkout attempt as already settled so only the
-    // FIRST terminal event acts - without it a successful payment would immediately be followed
-    // by a cancel call against the order that was just paid.
     const checkoutSettledRef = useRef(false);
 
-    // Idempotency key of the checkout attempt in flight (sent as the Idempotency-Key header). The
-    // same key is reused only for a retry of the SAME logical request - identical cart, billing
-    // details, customer and payment method (tracked by checkoutSignatureRef) - so a network retry
-    // is answered with the already-created order. Any change to the request gets a fresh key, and
-    // the key is dropped as soon as the attempt is finished (see resetCheckoutKey). Refs, so
-    // ordinary re-renders never disturb it.
     const checkoutKeyRef = useRef(null);
     const checkoutSignatureRef = useRef(null);
 
@@ -45,7 +29,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
 
     const keyForRequest = (signature) => {
         if (!checkoutKeyRef.current || checkoutSignatureRef.current !== signature) {
-            // crypto.randomUUID needs a secure context (https/localhost); fall back so checkout never breaks
             checkoutKeyRef.current = typeof crypto !== "undefined" && crypto.randomUUID
                 ? crypto.randomUUID()
                 : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -58,9 +41,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
     const tax = totalAmount * 0.01;
     const grandTotal = totalAmount + tax;
 
-    // Display/UX-only check against the latest fetched catalog data (mirrors CartItems.jsx) so
-    // checkout isn't even attempted when the cart is already known to be stale. The backend
-    // still re-validates and is the only authority that can actually reject an order.
     const hasKnownInventoryIssue = cartItems.some(cartItem => {
         const catalogItem = itemsData.find(item => item.itemId === cartItem.itemId);
         if (!catalogItem) return true;
@@ -69,8 +49,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
         return availableQuantity == null || cartItem.quantity > availableQuantity;
     });
 
-    // POS only: Cash / UPI merely SELECT the payment method; nothing is created until the cashier
-    // presses Place Order. (The online cart keeps its one-tap Cash/UPI buttons.)
     const [posMethod, setPosMethod] = useState(null);
 
     const clearAll = () => {
@@ -82,15 +60,10 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
         if (onSaleFinished) onSaleFinished();
     }
 
-    // A verified/paid sale (POS or online) is closed out immediately, so a second tap on Cash/UPI can
-    // never bill the same cart twice.
     const finishSale = (paidOrder) => {
         setOrderDetails(paidOrder);
         setShowPopup(true);
         clearAll();
-        // The backend has committed this sale's stock. Re-sync the catalog from the server (never
-        // subtract locally) so every product shows its authoritative availability right away.
-        // Not awaited: the receipt must not wait on it.
         refreshCatalog();
     }
 
@@ -99,7 +72,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
     }
 
     const loadRazorpayScript = () => {
-        // Loaded once per page; later checkouts reuse it instead of adding another <script> tag.
         if (typeof window !== "undefined" && window.Razorpay) {
             return Promise.resolve(true);
         }
@@ -112,7 +84,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
         })
     }
 
-    // Resolves true only when the backend confirmed the cancellation; a failure is never hidden.
     const handleOrderCancellation = async (orderId) => {
         try {
             await cancelOrder(orderId);
@@ -123,13 +94,8 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
         }
     }
 
-    // A network/transport failure = no HTTP response at all (see apiClient: `!error.response`).
-    // Explicit HTTP responses (400/401/403/404/409/5xx) are never treated as network failures.
     const isNetworkError = (error) => !!error && !error.response;
 
-    // Checkout could not be started (Razorpay order creation or SDK open failed) while the local
-    // PENDING_PAYMENT order exists: cancel it through the normal backend lifecycle (never delete),
-    // and report honestly whether the cancellation itself succeeded.
     const abortCheckoutStart = async (orderId) => {
         const cancelled = await handleOrderCancellation(orderId);
         if (cancelled) {
@@ -162,10 +128,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
             toast.error("Some items in your cart are no longer available in the requested quantity. Please review your cart and try again.");
             return;
         }
-        // Only itemId + quantity are sent for each cart line; name, price, subtotal, tax and
-        // grandTotal are never client-authoritative - the server looks up prices from the item
-        // catalog and computes the totals itself. totalAmount/tax/grandTotal above remain purely
-        // for the on-screen summary.
         let orderData;
         try {
             orderData = posMode
@@ -178,14 +140,10 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
                 })
                 : buildOnlineOrderRequest({paymentMethod: paymentMode.toUpperCase(), cartItems});
         } catch (error) {
-            // A selected registered customer with no usable id: stop here rather than send a
-            // request that the backend could only read as a walk-in sale.
             console.error(error);
             toast.error(error.message);
             return;
         }
-        // The logical request, order-insensitive for cart lines. Compared with the previous
-        // attempt's to decide whether this is a retry (same key) or a new request (new key).
         const signature = JSON.stringify({
             posMode,
             customer: posCustomer?.userId ?? null,
@@ -197,17 +155,11 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
         const idempotencyKey = keyForRequest(signature);
         let orderCreated = false;
         setIsProcessing(true);
-        // Drop any previously verified order before starting a new attempt. Without this, a
-        // successful earlier order would leave orderDetails populated and PAID, which would keep
-        // "Place Order" enabled and let a receipt be shown for the WRONG order if this new
-        // attempt is cancelled or fails verification.
         setOrderDetails(null);
         try {
 
             const response = await createOrder(orderData, auth.role !== "ROLE_USER", idempotencyKey);
             const savedData = response.data;
-            // 201 = created now, 200 = the backend replayed the order of an earlier attempt with
-            // this key. From here on the order exists, so this key must not be reused (below).
             orderCreated = true;
             if ((response.status === 201 || response.status === 200) && paymentMode === "cash") {
                 resetCheckoutKey();
@@ -223,37 +175,26 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
                     return;
                 }
 
-                //create razorpay order — amount is resolved server-side from the local order's
-                //grandTotal (see RazorpayServiceImpl), so only the local orderId is sent here.
                 let razorpayResponse;
                 try {
                     razorpayResponse = await createRazorpayOrder({currency: 'INR', orderId: savedData.orderId});
                 } catch (error) {
                     console.error(error);
-                    // Checkout cannot continue: cancel the orphaned local order (not delete).
                     await abortCheckoutStart(savedData.orderId);
                     resetCheckoutKey();
                     setIsProcessing(false);
                     return;
                 }
 
-                // New checkout attempt: nothing has settled it yet.
                 checkoutSettledRef.current = false;
 
-                // Built inside the try below, so an incomplete server response cancels the order like
-                // any other failure to start Checkout.
                 const buildOptions = () => buildCheckoutOptions({
                     razorpayOrder: razorpayResponse.data,
-                    // Prefill comes from the saved order's own snapshot (the account's details for
-                    // online orders), not from anything typed on this page.
                     prefill: {
                         name: savedData.customerName || customerName || posCustomer?.name,
                         contact: savedData.phoneNumber || mobileNumber,
                     },
                     handler: async function (response) {
-                        // Razorpay's callback alone is NOT proof of payment - it only means the
-                        // checkout closed. The order is settled solely by the backend's
-                        // signature verification below.
                         if (checkoutSettledRef.current) return;
                         checkoutSettledRef.current = true;
                         try {
@@ -264,8 +205,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
                         }
                     },
                     onDismiss: async () => {
-                        // Fires on every close, including after a successful payment or a
-                        // payment.failed - only act if nothing has settled this attempt yet.
                         if (checkoutSettledRef.current) return;
                         checkoutSettledRef.current = true;
                         const cancelled = await handleOrderCancellation(savedData.orderId);
@@ -292,8 +231,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
                     rzp.open();
                 } catch (error) {
                     console.error(error);
-                    // SDK constructor/open() threw. Settle through the same ref so a stray
-                    // late callback cannot also act; no new order is created.
                     if (checkoutSettledRef.current) return;
                     checkoutSettledRef.current = true;
                     await abortCheckoutStart(savedData.orderId);
@@ -301,30 +238,15 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
                     setIsProcessing(false);
                     return;
                 }
-                // Deliberately NOT clearing isProcessing here. The checkout modal is now open and
-                // the buttons must stay disabled until a terminal event above resolves it -
-                // otherwise a second click would create a duplicate local order.
             }
         }catch(error) {
             console.error(error);
-            // Keep the key only while it is still useful: no reply at all (network error/timeout) or
-            // a 5xx means the order may or may not exist, so the retry must send the SAME key and
-            // let the backend answer. A definitive 4xx rejection created nothing, and once the
-            // order exists a later failure (e.g. opening the payment step) ends this attempt.
             if (orderCreated || (error.response && error.response.status < 500)) {
                 resetCheckoutKey();
             }
             if (error.response?.status === 409) {
-                // A stock/inventory conflict from order creation - the backend's own message is
-                // already customer-safe (see GlobalExceptionHandler/ConflictException), so prefer
-                // it; fall back to a generic inventory-specific message if it's ever missing.
-                // No order was created here, so there is nothing to cancel/fail, and orderDetails
-                // was already cleared above - no false success, no receipt.
                 toast.error(error.friendlyMessage
                     || "Some items are no longer available in the requested quantity. Please review your cart and try again.");
-                // Best-effort refresh so the badges/limits in the catalog and cart reflect the
-                // current stock right away, instead of the customer discovering it's still stale
-                // only on their next attempt.
                 refreshCatalog();
             } else {
                 toast.error(error.friendlyMessage || "Payment processing failed");
@@ -334,8 +256,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
     }
 
     const verifyPaymentHandler = async (response, savedOrder) => {
-        // The local orderId is what ties this payment to our own record; the backend re-checks
-        // that razorpayOrderId matches the one it stored against that order.
         const paymentData = {
             razorpayOrderId: response.razorpay_order_id,
             razorpayPaymentId: response.razorpay_payment_id,
@@ -347,23 +267,15 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
             try {
                 paymentResponse = await verifyPayment(paymentData);
             } catch (firstError) {
-                // No reliable response (network/transport failure): the server may already have
-                // verified and marked the order PAID. Retry exactly once with the SAME payload
-                // (verification is idempotent server-side). Explicit HTTP errors are not retried.
                 if (!isNetworkError(firstError)) throw firstError;
                 paymentResponse = await verifyPayment(paymentData);
             }
             const verifiedOrder = paymentResponse.data;
 
-            // Success requires BOTH a 2xx and a backend-reported PAID status. The status is the
-            // server's own verdict after signature verification - we never infer PAID from the
-            // Razorpay callback or from the HTTP status alone.
             if (paymentResponse.status === 200 && verifiedOrder?.orderStatus === "PAID") {
                 toast.success("Payment successful");
                 finishSale(verifiedOrder);
             } else {
-                // Verification did not confirm payment. Leave orderDetails null so the receipt
-                // stays unavailable; the order keeps whatever state the backend decided.
                 setOrderDetails(null);
                 toast.error("Payment could not be verified. Your order has not been marked paid.");
             }
@@ -371,14 +283,9 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
             console.error(error);
             setOrderDetails(null);
             if (isNetworkError(error)) {
-                // Both attempts got no response. The outcome is UNKNOWN (the order may be PAID),
-                // so do not say failed/cancelled, cancel, or reopen checkout.
                 toast.error(`Payment status could not be confirmed. Check your order history (order #${savedOrder.orderId}) before trying again.`, {duration: 10000});
                 return;
             }
-            // A rejected verification (bad signature, mismatched Razorpay order, wrong owner,
-            // invalid state) lands here. The backend remains the source of truth - we do not
-            // mark anything paid client-side.
             toast.error(error.friendlyMessage
                 ? `Payment verification failed: ${error.friendlyMessage}`
                 : "Payment verification failed. Your order has not been marked paid.");
@@ -402,8 +309,6 @@ const CartSummary = ({customerName = "", mobileNumber = "", setMobileNumber = ()
 
     const isCartEmpty = cartItems.length === 0;
 
-    // The customer cart page empties its cart the moment a sale is paid, but the receipt shown for
-    // that sale lives here - so with nothing left to bill, render only the receipt.
     if (hideWhenEmpty && isCartEmpty) {
         return <>{receiptPopup}</>;
     }

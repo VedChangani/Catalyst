@@ -9,9 +9,6 @@ import PosCustomerSelector from "../../components/PosCustomerSelector/PosCustome
 import LoadingState from "../../ui/LoadingState.jsx";
 import PageShell from "../../ui/PageShell.jsx";
 
-// Cashier-only (ROLE_CASHIER) in-store billing: the same catalog, cart and payment components as the
-// storefront, plus an optional, explicit registered-customer selection. Orders are sent to
-// POST /pos/orders; the backend decides the sales channel and the creating staff member.
 const PosBilling = () => {
     const {categories, isCatalogLoading} = useContext(AppContext);
     const [selectedCategory, setSelectedCategory] = useState("");

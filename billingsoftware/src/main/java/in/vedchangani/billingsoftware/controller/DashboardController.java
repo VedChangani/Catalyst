@@ -23,7 +23,6 @@ public class DashboardController {
     @GetMapping
     public DashboardResponse getDashboardData() {
         LocalDate today = LocalDate.now();
-        // PAID revenue and PAID order count for today by effective paid time (same rule as Analytics)
         BigDecimal todaySale = orderService.sumSalesByDate(today);
         Long todayOrderCount = orderService.countByOrderDate(today);
         List<OrderResponse> recentOrders = orderService.findRecentOrders();

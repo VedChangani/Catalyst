@@ -8,7 +8,6 @@ import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/** Pure date-range resolution/validation for the analytics endpoint; no Spring context. */
 class AnalyticsRangeResolverTest {
 
     private static final LocalDate TODAY = LocalDate.of(2026, 3, 15);
@@ -45,7 +44,6 @@ class AnalyticsRangeResolverTest {
         assertEquals("custom", r.getPreset());
         assertEquals(LocalDate.of(2026, 1, 1), r.getFrom());
         assertEquals(LocalDate.of(2026, 1, 31), r.getTo());
-        // single day is valid
         assertEquals(TODAY, resolve("custom", TODAY, TODAY).getFrom());
     }
 
@@ -56,7 +54,6 @@ class AnalyticsRangeResolverTest {
         assertThrows(IllegalArgumentException.class, () -> resolve("custom", a, null));
         assertThrows(IllegalArgumentException.class, () -> resolve("custom", null, a));
         assertThrows(IllegalArgumentException.class, () -> resolve("custom", a.plusDays(1), a));
-        // 366 days inclusive is the maximum
         resolve("custom", a, a.plusDays(365));
         assertThrows(IllegalArgumentException.class, () -> resolve("custom", a, a.plusDays(366)));
     }

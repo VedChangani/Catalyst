@@ -10,8 +10,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-// The caller's OWN account (any authenticated role). "me" is the authenticated principal - there is
-// deliberately no route that takes a user id.
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/account/me")

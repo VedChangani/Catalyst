@@ -16,12 +16,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
-/**
- * Verifies that OrderController simply delegates to OrderServiceImpl and lets its exceptions
- * (empty cart, bad quantity, unknown itemId, ownership failures) propagate unchanged. Translating
- * those exception types into the right HTTP status (400/403/404/409) is GlobalExceptionHandler's
- * job (see GlobalExceptionHandlerTest), not the controller's.
- */
 @ExtendWith(MockitoExtension.class)
 class OrderControllerValidationTest {
 

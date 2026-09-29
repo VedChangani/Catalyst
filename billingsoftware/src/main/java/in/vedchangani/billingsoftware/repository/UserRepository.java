@@ -22,9 +22,6 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     boolean existsByRole(String role);
 
-    // Single-statement updates so the tokenVersion increment is atomic in the database (two
-    // concurrent calls each add 1; neither can overwrite the other's increment). Both revoke every
-    // JWT the account currently holds.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE UserEntity u SET u.password = :passwordHash, " +
             "u.tokenVersion = COALESCE(u.tokenVersion, 0) + 1 WHERE u.id = :id")
@@ -35,15 +32,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             "u.tokenVersion = COALESCE(u.tokenVersion, 0) + 1 WHERE u.id = :id")
     int disableAndRevokeTokens(@Param("id") Long id);
 
-    // Reactivation deliberately leaves tokenVersion alone: tokens revoked by the deactivation stay
-    // revoked, so the cashier has to sign in again.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE UserEntity u SET u.enabled = true WHERE u.id = :id")
     int enable(@Param("id") Long id);
 
-    // Customer lookup for the POS: registered customer accounts (ROLE_USER) only, matched on
-    // name or email. `search` must already be LIKE-escaped with '!' as the escape character
-    // ('!' rather than a backslash, which MySQL treats specially inside string literals).
     @Query("SELECT u FROM UserEntity u WHERE u.role = 'ROLE_USER' AND " +
             "(LOWER(u.name) LIKE LOWER(CONCAT('%', :search, '%')) ESCAPE '!' " +
             "OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')) ESCAPE '!') ORDER BY u.name ASC")

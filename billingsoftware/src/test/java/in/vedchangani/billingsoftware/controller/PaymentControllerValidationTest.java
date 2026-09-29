@@ -12,12 +12,6 @@ import org.springframework.security.access.AccessDeniedException;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
-/**
- * Verifies that PaymentController simply delegates to RazorpayServiceImpl/OrderServiceImpl and
- * lets their exceptions (unknown order, wrong owner, wrong order status) propagate unchanged.
- * Translating those exception types into the right HTTP status (400/403/404/409) is
- * GlobalExceptionHandler's job (see GlobalExceptionHandlerTest), not the controller's.
- */
 @ExtendWith(MockitoExtension.class)
 class PaymentControllerValidationTest {
 

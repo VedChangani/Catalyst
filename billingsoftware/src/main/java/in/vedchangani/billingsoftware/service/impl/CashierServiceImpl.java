@@ -39,14 +39,11 @@ public class CashierServiceImpl implements CashierService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
-    // One transaction: the account and its CASHIER_CREATED event (actor = the admin) commit or
-    // roll back together. A rejected request (validation, duplicate) creates neither.
     @Override
     @Transactional
     public CashierResponse createCashier(CashierCreateRequest request) {
         UserResponse created = userService.createCashier(request);
         auditService.record(AuditAction.CASHIER_CREATED, AuditTargetType.CASHIER, created.getUserId(), Map.of());
-        // a brand-new cashier has no sales yet
         return toResponse(findCashier(created.getUserId()), null);
     }
 
@@ -57,7 +54,6 @@ public class CashierServiceImpl implements CashierService {
         if (cashiers.isEmpty()) {
             return List.of();
         }
-        // Two queries in total, however many cashiers and orders there are.
         Map<Long, CashierSalesStats> statsByCashier = orderEntityRepository
                 .cashierSalesStats(cashiers.stream().map(UserEntity::getId).toList(), SalesChannel.POS, OrderStatus.PAID)
                 .stream()
@@ -67,10 +63,6 @@ public class CashierServiceImpl implements CashierService {
                 .toList();
     }
 
-    // Only status (and, on deactivation, the token version) changes. Orders the cashier entered
-    // keep their createdBy untouched. Deactivation revokes every token the cashier holds;
-    // reactivation does not un-revoke them, so the cashier must sign in again. Repeating a
-    // deactivation just bumps the version again, which is harmless.
     @Override
     @Transactional
     public CashierResponse setEnabled(String cashierUserId, boolean enabled) {
@@ -82,7 +74,6 @@ public class CashierServiceImpl implements CashierService {
         } else {
             userRepository.disableAndRevokeTokens(id);
         }
-        // Audited only when the status actually changed; repeating the current status is no event.
         if (wasEnabled != enabled) {
             auditService.record(enabled ? AuditAction.CASHIER_REACTIVATED : AuditAction.CASHIER_DEACTIVATED,
                     AuditTargetType.CASHIER, cashierUserId,
@@ -98,14 +89,10 @@ public class CashierServiceImpl implements CashierService {
     @Transactional
     public void resetPassword(String cashierUserId, String newPassword) {
         UserEntity cashier = findCashier(cashierUserId);
-        // new hash + token version bump in one statement: every session from before the reset ends
         userRepository.updatePasswordAndRevokeTokens(cashier.getId(), passwordEncoder.encode(newPassword));
-        // Never the password or its hash - only that a reset happened, and to whom.
         auditService.record(AuditAction.CASHIER_PASSWORD_RESET, AuditTargetType.CASHIER, cashierUserId, Map.of());
     }
 
-    // Any id that is not a cashier (customer, admin, unknown) is simply "not found", so these
-    // endpoints can never be used to act on other kinds of accounts.
     private UserEntity findCashier(String cashierUserId) {
         return userRepository.findByUserId(cashierUserId)
                 .filter(user -> CASHIER_ROLE.equals(user.getRole()))

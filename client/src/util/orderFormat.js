@@ -1,5 +1,3 @@
-// Display helpers shared by the order screens (My Orders and the admin order list).
-
 export const formatDate = (dateString) => {
     const options = {
         year: 'numeric',
@@ -30,7 +28,6 @@ export const paymentStatusTone = (status) => {
     }
 };
 
-// ONLINE / POS (null on legacy orders whose channel was never recorded).
 export const channelLabel = (channel) => {
     switch (channel) {
         case "ONLINE": return "Online";
@@ -49,5 +46,4 @@ export const channelTone = (channel) => {
 
 export const statusLabel = (status) => (status || "").replaceAll("_", " ");
 
-// Rupee amount with 2 decimals, matching the existing "₹x.xx" display used across the app.
 export const formatCurrency = (amount) => `₹${Number(amount || 0).toFixed(2)}`;

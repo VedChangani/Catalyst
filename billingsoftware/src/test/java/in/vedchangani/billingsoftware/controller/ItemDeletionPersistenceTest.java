@@ -37,11 +37,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-/**
- * DELETE /admin/items/{itemId} must really remove the row: 204 AND gone from the database AND
- * gone from GET /items. Real security chain, controller, service, Hibernate and H2; deliberately
- * NOT @Transactional so the service's own transaction commits for real.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -72,8 +67,6 @@ class ItemDeletionPersistenceTest {
     @AfterEach
     void tearDown() {
         orderEntityRepository.deleteAll();
-        // itemRepository.deleteAll() would silently skip rows whose version is NULL (the very bug under
-        // test), so the items are cleared with SQL.
         jdbcTemplate.update("DELETE FROM tbl_items");
         categoryRepository.deleteAll();
         userRepository.deleteAll();
@@ -85,9 +78,6 @@ class ItemDeletionPersistenceTest {
                 .name(role).role(role).mobile(TestMobiles.next()).password("not-used").build());
     }
 
-    // A row shaped like the ones in the real MySQL database: created before inventory tracking, so
-    // version, active and reserved_quantity are NULL. (Rows saved through JPA get a version, which
-    // is why a plain save-then-delete test can not reproduce the bug.)
     private ItemEntity legacyItem(String name) {
         ItemEntity saved = item(name, 0);
         jdbcTemplate.update("UPDATE tbl_items SET version = NULL, active = NULL, reserved_quantity = NULL WHERE id = ?", saved.getId());
@@ -126,7 +116,6 @@ class ItemDeletionPersistenceTest {
         assertTrue(itemRepository.findByItemId(item.getItemId()).isEmpty(), "row must be gone (by item_id)");
         assertTrue(itemRepository.findById(item.getId()).isEmpty(), "row must be gone (by primary key)");
         assertFalse(listedInItems(item.getItemId()), "GET /items must no longer return it");
-        // deleting it again is a 404, not a second "success"
         assertEquals(404, deleteAs(admin, item.getItemId()).getResponse().getStatus());
     }
 

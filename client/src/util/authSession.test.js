@@ -4,7 +4,7 @@ import {hasSession, startSession} from "./authSession.js";
 
 test("only a token AND a role count as a session", () => {
     assert.equal(hasSession("jwt", "ROLE_USER"), true);
-    assert.equal(hasSession(null, null), false);          // logout / password change
+    assert.equal(hasSession(null, null), false);
     assert.equal(hasSession(undefined, undefined), false);
     assert.equal(hasSession("", "ROLE_USER"), false);
     assert.equal(hasSession("jwt", null), false);

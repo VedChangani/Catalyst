@@ -2,15 +2,6 @@ package in.vedchangani.billingsoftware.util;
 
 import java.util.regex.Pattern;
 
-/**
- * The single, authoritative password policy: 8-72 characters with at least one lowercase letter,
- * one uppercase letter, one digit and one special (non-alphanumeric) character. 72 is BCrypt's
- * input limit - anything longer would be silently truncated. Used through the {@code @StrongPassword}
- * constraint on request DTOs and directly by services; never re-declare these rules elsewhere.
- *
- * It is only applied when a password is SET. Existing hashes are never inspected, so passwords
- * created under the older (letter + number) rule keep working until their owner changes them.
- */
 public final class PasswordPolicy {
 
     public static final int MIN_LENGTH = 8;

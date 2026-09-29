@@ -11,8 +11,6 @@ import {passwordPolicyError} from "../../util/accountValidation.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Mirrors the backend's ContactNormalizer: optional +91 / 91 / 0 prefix, common separators,
-// then a 10-digit Indian mobile number starting with 6-9. The backend re-validates regardless.
 const normalizeMobile = (value) => {
     let digits = value.trim().replace(/[\s\-().]/g, "");
     if (digits.startsWith("+91")) {
@@ -80,7 +78,6 @@ const Register = () => {
         if (Object.keys(validationErrors).length > 0) return;
 
         setLoading(true);
-        // No role is ever sent: the backend decides the account type (always a customer here).
         const payload = {
             name: data.name.trim(),
             email: data.email.trim().toLowerCase(),
@@ -96,8 +93,6 @@ const Register = () => {
             return;
         }
 
-        // Sign straight in through the normal login endpoint so the session is issued exactly the
-        // same way as for every other account.
         try {
             const response = await login({identifier: payload.email, password: payload.password});
             toast.success("Account created");
@@ -115,7 +110,6 @@ const Register = () => {
         <div className="grid min-h-screen lg:grid-cols-[45fr_55fr]">
             <AuthBrandPanel />
 
-            {/* ── REGISTER FORM PANEL ── same card as the login form */}
             <section className="flex items-center justify-center px-6 py-10 sm:px-10">
                 <div className="w-full max-w-md border-[3px] border-ink bg-surface p-8 shadow-[4px_4px_0_#111827]">
                     <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-muted">New customer</p>
@@ -196,7 +190,6 @@ const Register = () => {
                         </Link>
                     </p>
 
-                    {/* Small coral accent line */}
                     <div className="mt-6 flex items-center gap-2">
                         <div className="h-0.5 w-8 bg-coral" />
                         <span className="text-xs font-bold text-muted">Secure access</span>

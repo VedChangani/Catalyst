@@ -72,12 +72,12 @@ Exactly three roles exist; roles cannot be changed through any API.
 ## Security
 
 - **JWT authentication** – bearer token; the subject is the normalized email. The filter reloads the account on every request and accepts the token only if the account is enabled and the token's `tokenVersion` matches the account's.
-- **Session revocation** – `tokenVersion` is incremented on password reset, cashier deactivation, password change and email change, invalidating older tokens.
+- **Session revocation** – `tokenVersion` is incremented on admin cashier password reset, cashier deactivation, password change and email change, invalidating older tokens.
 - **RBAC** – URL-level rules are centralized in `SecurityConfig`; hiding a link in the UI is not relied on.
 - **Ownership** – enforced in the service layer from the authenticated principal. Customers see only orders linked to them; cashiers see only POS orders they created; no client-supplied id widens access.
 - **Server-side pricing** – item price, subtotal, tax and total are computed on the backend from authoritative item data. Money is `BigDecimal` end to end; tax is 1% of subtotal, rounded half-up to 2 decimals.
 - **Server-determined channel** – `salesChannel` (ONLINE/POS) comes from the endpoint, never from the request.
-- **Passwords** – BCrypt-hashed; policy is 8–72 characters with at least one letter and one number. Login failures return one uniform `401` so account existence and status are not revealed.
+- **Passwords** – BCrypt-hashed; policy is 8–72 characters with at least one lowercase letter, one uppercase letter, one number and one special character (one shared `PasswordPolicy`, also mirrored in the UI). There is no self-service password recovery: customers change their password in Account, cashiers are reset by an admin. Login failures return one uniform `401` so account existence and status are not revealed.
 - **Payment verification** – Razorpay signature is verified on the backend; see [Payment Flow](#payment-flow).
 - **Inventory protection** – atomic updates prevent negative stock and double commit/release.
 - **Errors and CORS** – a single JSON error shape with no stack traces; CORS uses an explicit origin allow-list (`*` is rejected at startup).

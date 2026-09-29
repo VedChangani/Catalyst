@@ -31,7 +31,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     static final int MAX_RANGE_DAYS = 366;
     private static final String UNKNOWN = "UNKNOWN";
-    // The database returns only the top rows; nothing is sorted or trimmed in Java.
     private static final Pageable TOP_PRODUCTS = PageRequest.of(0, 5);
 
     private final AnalyticsRepository analyticsRepository;
@@ -40,7 +39,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     @Transactional(readOnly = true)
     public AnalyticsResponse getAnalytics(String range, LocalDate from, LocalDate to) {
         AnalyticsResponse.Range resolved = resolveRange(range, from, to, LocalDate.now());
-        // Half-open [from 00:00, to+1 00:00): the whole of the last day is included.
         LocalDateTime start = resolved.getFrom().atStartOfDay();
         LocalDateTime end = resolved.getTo().plusDays(1).atStartOfDay();
 
@@ -67,8 +65,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .build();
     }
 
-    // today = [today, today]; 7d = today-6..today; 30d = today-29..today; custom = from..to.
-    // Package-private and takes "today" so the presets are testable without a clock.
     static AnalyticsResponse.Range resolveRange(String range, LocalDate from, LocalDate to, LocalDate today) {
         String preset = (range == null || range.isBlank()) ? "7d" : range.trim().toLowerCase(Locale.ROOT);
         LocalDate start;
@@ -98,7 +94,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return AnalyticsResponse.Range.builder().preset(preset).from(start).to(end).build();
     }
 
-    // One point per calendar day of the range, so days without sales appear as zero.
     private List<AnalyticsResponse.DailyPoint> dailySeries(AnalyticsResponse.Range range,
                                                           LocalDateTime start, LocalDateTime end) {
         Map<LocalDate, AnalyticsResponse.DailyPoint> byDay = new LinkedHashMap<>();
@@ -146,7 +141,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return result;
     }
 
-    // Revenue (BigDecimal) and paid-order count accumulated per channel / payment method.
     private static final class Bucket {
         private BigDecimal revenue = BigDecimal.ZERO;
         private long orders;
@@ -175,7 +169,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .untracked(nz(row.getUntracked())).build();
     }
 
-    // All four statuses, zero-filled. Rows with a NULL status never reach here (excluded by the query).
     private static Map<OrderStatus, Long> statusCounts(List<AnalyticsRepository.StatusRow> rows) {
         Map<OrderStatus, Long> counts = new EnumMap<>(OrderStatus.class);
         for (OrderStatus s : OrderStatus.values()) {
@@ -195,8 +188,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return settled == 0 ? null : round4((double) paid / settled);
     }
 
-    // Shares are ratios (0..1, 4 decimals), not money, so they stay Double; the revenue division
-    // itself is decimal.
     private static double share(BigDecimal part, BigDecimal total) {
         return total.signum() <= 0 ? 0.0 : part.divide(total, 4, RoundingMode.HALF_UP).doubleValue();
     }
@@ -205,7 +196,6 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return total <= 0 ? 0.0 : round4((double) part / total);
     }
 
-    // Money in responses: 2 decimals (sums of whole-paise totals are already exact at that scale).
     private static BigDecimal money(BigDecimal amount) {
         return Money.atCurrencyScale(amount);
     }

@@ -7,7 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-// Plain pagination envelope, so no Spring Data Page internals reach API clients.
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

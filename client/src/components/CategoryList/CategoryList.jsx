@@ -28,9 +28,6 @@ const CategoryList = () => {
             }
         } catch (error) {
             console.error(error);
-            // A category that still has items reports a specific 409 conflict message from the
-            // backend (e.g. "Cannot delete category 'X' because 3 item(s) still reference it") -
-            // show it instead of a generic failure message.
             toast.error(error.friendlyMessage || "Unable to delete category");
         } finally {
             setDeletingId(null);

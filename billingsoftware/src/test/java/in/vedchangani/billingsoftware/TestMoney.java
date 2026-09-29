@@ -5,7 +5,6 @@ import java.math.BigDecimal;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Exact money assertions for tests: decimal comparison, no tolerance, independent of scale. */
 public final class TestMoney {
 
     private TestMoney() {

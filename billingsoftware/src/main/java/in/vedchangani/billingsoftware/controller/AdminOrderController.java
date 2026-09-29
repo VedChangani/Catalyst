@@ -12,8 +12,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-// ADMIN-only: gated by the existing /admin/** rule in SecurityConfig. Only collects the query
-// parameters; validation and the database query live in OrderService.
 @RestController
 @RequestMapping("/admin/orders")
 @RequiredArgsConstructor

@@ -16,10 +16,6 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * /admin/analytics is covered by the existing ADMIN-only /admin/** rule. Service is mocked: this
- * proves who may reach the endpoint, through the real SecurityConfig filter chain.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

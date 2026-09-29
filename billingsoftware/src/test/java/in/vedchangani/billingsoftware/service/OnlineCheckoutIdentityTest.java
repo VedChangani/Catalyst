@@ -30,11 +30,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-/**
- * A2: an ONLINE order's customer identity comes only from the authenticated account. Runs through
- * the real security chain, controller, service and H2 database; deliberately NOT @Transactional so
- * the order really commits.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -107,7 +102,6 @@ class OnlineCheckoutIdentityTest {
         assertEquals(aaron.getId(), order.getUser().getId());
         assertEquals(SalesChannel.ONLINE, order.getSalesChannel());
         assertNull(order.getCreatedBy());
-        // the response still exposes the historical snapshot
         assertEquals("Aaron Customer", json(result).get("customerName").asText());
         assertEquals(aaron.getMobile(), json(result).get("phoneNumber").asText());
     }
@@ -145,7 +139,6 @@ class OnlineCheckoutIdentityTest {
         assertEquals("Aaron Customer", reloaded.getCustomerName());
         assertEquals(originalMobile, reloaded.getPhoneNumber());
 
-        // a new order after the change snapshots the NEW details; the old one is untouched
         OrderEntity next = stored(placeOrder(account, body("")));
         assertEquals("Aaron Renamed", next.getCustomerName());
         assertEquals(account.getMobile(), next.getPhoneNumber());
@@ -164,7 +157,6 @@ class OnlineCheckoutIdentityTest {
         assertEquals(400, result.getResponse().getStatus());
         assertTrue(json(result).get("message").asText().contains("Complete your profile"));
         assertEquals(0, orderEntityRepository.count());
-        // nothing was reserved or committed
         ItemEntity after = itemRepository.findByItemId(item.getItemId()).orElseThrow();
         assertEquals(100, after.getStockQuantity());
         assertEquals(0, after.getReservedQuantity());

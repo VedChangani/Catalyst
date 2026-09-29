@@ -37,20 +37,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-/**
- * Pre-A6 hardening, end to end on the real security chain, JWT filter, controllers and H2:
- *  1. per-account tokenVersion: password reset and deactivation revoke already-issued JWTs
- *  2. the retired generic user management (/admin/register, /admin/users) is gone
- *  3. unmatched routes answer 404 in the normal error format
- *  4. a cashier may open the detail of a POS order it entered - and nothing else
- * Deliberately NOT @Transactional, so every service transaction really commits.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class SecurityHardeningTest {
 
-    private static final String PASSWORD = "Secret123";
+    private static final String PASSWORD = "Secret123!";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
@@ -92,8 +84,6 @@ class SecurityHardeningTest {
         categoryRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private UserEntity account(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
@@ -143,7 +133,6 @@ class SecurityHardeningTest {
         return jwtUtil.extractTokenVersion(token);
     }
 
-    // A protected cashier-only call, used to probe whether a token still authenticates.
     private int mySalesWith(String token) throws Exception {
         return status(bearer(get("/pos/sales"), token));
     }
@@ -163,18 +152,14 @@ class SecurityHardeningTest {
         return body(result).get("orderId").asText();
     }
 
-    // =====================================================================================
-    // Finding 1: tokenVersion
-    // =====================================================================================
-
     @Test
     void newTokens_carryTheAccountsCurrentTokenVersion() throws Exception {
         assertEquals(0, tokenClaimVersion(login(cashierA, PASSWORD)));
 
-        perform(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin), "{\"password\":\"Fresh4567\"}"));
+        perform(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin), "{\"password\":\"Fresh4567!\"}"));
 
         assertEquals(1, reload(cashierA).currentTokenVersion());
-        assertEquals(1, tokenClaimVersion(login(cashierA, "Fresh4567")));
+        assertEquals(1, tokenClaimVersion(login(cashierA, "Fresh4567!")));
     }
 
     @Test
@@ -183,20 +168,17 @@ class SecurityHardeningTest {
         assertEquals(200, mySalesWith(oldToken));
 
         assertEquals(204, status(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin),
-                "{\"password\":\"Fresh4567\",\"tokenVersion\":0}")));
+                "{\"password\":\"Fresh4567!\",\"tokenVersion\":0}")));
 
-        // the same, still-unexpired token is now refused on every protected API
         assertEquals(401, mySalesWith(oldToken));
         assertEquals(401, status(bearer(get("/pos/customers").param("search", "aa"), oldToken)));
         assertEquals(401, status(bearer(json(post("/pos/orders"), "{\"paymentMethod\":\"CASH\",\"cartItems\":[{\"itemId\":\""
                 + item.getItemId() + "\",\"quantity\":1}]}"), oldToken)));
         assertEquals(0, orderEntityRepository.count());
 
-        // old password is gone; the new one yields a token that works
         assertEquals(401, loginResult(cashierA, PASSWORD).getResponse().getStatus());
-        String newToken = login(cashierA, "Fresh4567");
+        String newToken = login(cashierA, "Fresh4567!");
         assertEquals(200, mySalesWith(newToken));
-        // the client-supplied tokenVersion was ignored: the server incremented it exactly once
         assertEquals(1, reload(cashierA).currentTokenVersion());
     }
 
@@ -214,11 +196,8 @@ class SecurityHardeningTest {
         assertEquals(200, status(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin), "{\"enabled\":true}")));
         UserEntity reactivated = reload(cashierA);
         assertTrue(reactivated.isAccountEnabled());
-        // reactivation does not touch the version...
         assertEquals(versionBefore + 1, reactivated.currentTokenVersion());
-        // ...so the pre-deactivation token stays dead, even though the account is active again
         assertEquals(401, mySalesWith(beforeDeactivation));
-        // a fresh login works
         assertEquals(200, mySalesWith(login(cashierA, PASSWORD)));
     }
 
@@ -227,8 +206,7 @@ class SecurityHardeningTest {
         String tokenA = login(cashierA, PASSWORD);
         String customerToken = login(customerA, PASSWORD);
 
-        // events on OTHER accounts, and a reactivation of an already-active account, change nothing
-        perform(json(as(post("/admin/cashiers/" + cashierB.getUserId() + "/reset-password"), admin), "{\"password\":\"Fresh4567\"}"));
+        perform(json(as(post("/admin/cashiers/" + cashierB.getUserId() + "/reset-password"), admin), "{\"password\":\"Fresh4567!\"}"));
         perform(json(as(patch("/admin/cashiers/" + cashierB.getUserId() + "/status"), admin), "{\"enabled\":false}"));
         perform(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin), "{\"enabled\":true}"));
 
@@ -239,7 +217,6 @@ class SecurityHardeningTest {
 
     @Test
     void aTokenWithAMismatchedVersion_isRejected_evenWithAValidSignature() throws Exception {
-        // correctly signed by the server key, right subject, but a version the account never had
         String forged = jwtUtil.generateToken(new AppUserPrincipal(cashierA.getEmail(), "x", true,
                 List.of(new SimpleGrantedAuthority("ROLE_CASHIER")), 7));
         assertEquals(7, tokenClaimVersion(forged));
@@ -249,7 +226,6 @@ class SecurityHardeningTest {
 
     @Test
     void legacyTokenWithoutTheClaim_worksAtVersion0_andIsRejectedOnceTheVersionMoves() throws Exception {
-        // a token shaped like those issued before tokenVersion existed (no claim at all)
         String legacy = jwtUtil.generateToken(new User(cashierA.getEmail(), "x",
                 List.of(new SimpleGrantedAuthority("ROLE_CASHIER"))));
         String payload = new String(Base64.getUrlDecoder().decode(legacy.split("\\.")[1]), StandardCharsets.UTF_8);
@@ -257,7 +233,7 @@ class SecurityHardeningTest {
 
         assertEquals(200, mySalesWith(legacy));
 
-        perform(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin), "{\"password\":\"Fresh4567\"}"));
+        perform(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin), "{\"password\":\"Fresh4567!\"}"));
 
         assertEquals(401, mySalesWith(legacy));
     }
@@ -284,13 +260,9 @@ class SecurityHardeningTest {
         }
     }
 
-    // =====================================================================================
-    // Finding 2: retired generic user management
-    // =====================================================================================
-
     @Test
     void retiredUserManagementEndpoints_noLongerExist_evenForAdmin() throws Exception {
-        String escalation = "{\"name\":\"Evil\",\"email\":\"evil-" + s + "@example.com\",\"password\":\"secret123\",\"role\":\"ROLE_ADMIN\"}";
+        String escalation = "{\"name\":\"Evil\",\"email\":\"evil-" + s + "@example.com\",\"password\":\"Secret123!\",\"role\":\"ROLE_ADMIN\"}";
 
         assertEquals(404, status(json(as(post("/admin/register"), admin), escalation)));
         assertEquals(404, status(as(get("/admin/users"), admin)));
@@ -303,7 +275,7 @@ class SecurityHardeningTest {
 
     @Test
     void lowerRoles_areRefusedOnTheAdminPaths_andNoAccountIsCreatedOrDeleted() throws Exception {
-        String escalation = "{\"name\":\"Evil\",\"email\":\"evil2-" + s + "@example.com\",\"password\":\"secret123\",\"role\":\"ROLE_ADMIN\"}";
+        String escalation = "{\"name\":\"Evil\",\"email\":\"evil2-" + s + "@example.com\",\"password\":\"Secret123!\",\"role\":\"ROLE_ADMIN\"}";
         for (UserEntity actor : new UserEntity[]{customerA, cashierA}) {
             assertEquals(403, status(json(as(post("/admin/register"), actor), escalation)));
             assertEquals(403, status(as(get("/admin/users"), actor)));
@@ -334,10 +306,6 @@ class SecurityHardeningTest {
         assertTrue(perform(as(get("/admin/cashiers"), admin)).getResponse().getContentAsString().contains(email));
     }
 
-    // =====================================================================================
-    // Finding 3: unmatched routes -> 404
-    // =====================================================================================
-
     @Test
     void unmatchedRoutes_return404_inTheStandardErrorFormat() throws Exception {
         MvcResult noSuchPath = perform(as(get("/definitely-not-an-endpoint/" + s), admin));
@@ -358,16 +326,11 @@ class SecurityHardeningTest {
 
     @Test
     void otherErrorStatuses_areUnchanged() throws Exception {
-        // authentication still precedes routing, authorization and validation still apply
         assertEquals(401, status(get("/definitely-not-an-endpoint")));
         assertEquals(403, status(as(get("/admin/cashiers"), customerA)));
         assertEquals(400, status(json(as(post("/admin/cashiers"), admin), "{}")));
         assertEquals(404, status(json(as(patch("/admin/cashiers/unknown-id/status"), admin), "{\"enabled\":false}")));
     }
-
-    // =====================================================================================
-    // Finding 4: cashier order detail
-    // =====================================================================================
 
     @Test
     void cashier_opensOwnPosSales_walkInAndRegisteredCustomer() throws Exception {
@@ -396,7 +359,6 @@ class SecurityHardeningTest {
 
         assertEquals(403, status(as(get("/orders/" + othersSale), cashierA)));
         assertEquals(403, status(as(get("/orders/" + onlineOrder), cashierA)));
-        // a client-supplied cashier id changes nothing
         assertEquals(403, status(as(get("/orders/" + othersSale).param("cashierId", cashierB.getUserId()), cashierA)));
         assertEquals(404, status(as(get("/orders/ORD-does-not-exist"), cashierA)));
     }
@@ -411,7 +373,6 @@ class SecurityHardeningTest {
         assertEquals(200, status(as(get("/orders/" + ownOnline), customerA)));
         assertEquals(200, status(as(get("/orders/" + linkedPos), customerA)));
         assertEquals(403, status(as(get("/orders/" + othersOnline), customerA)));
-        // knowing a walk-in sale's id grants a customer nothing
         assertEquals(403, status(as(get("/orders/" + walkIn), customerA)));
         assertEquals(403, status(as(get("/orders/" + walkIn), customerB)));
     }
@@ -425,7 +386,6 @@ class SecurityHardeningTest {
         assertTrue(all.contains(posOrder));
         assertTrue(all.contains(online));
         assertEquals(200, status(as(get("/orders/latest"), admin)));
-        // the per-order customer/cashier detail endpoint was never an admin endpoint
         assertEquals(403, status(as(get("/orders/" + posOrder), admin)));
     }
 }

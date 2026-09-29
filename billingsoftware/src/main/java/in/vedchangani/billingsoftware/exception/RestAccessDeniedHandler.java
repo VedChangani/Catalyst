@@ -12,13 +12,6 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.LocalDateTime;
 
-/**
- * Fires when an authenticated request is rejected by a URL-level role rule in
- * {@code SecurityConfig} (e.g. a USER calling an ADMIN-only endpoint) - this happens in the
- * security filter chain, before the request reaches a controller, so
- * {@link GlobalExceptionHandler} cannot see it. Writes the same ErrorResponse shape so every
- * 403 the API returns looks the same.
- */
 @Component
 public class RestAccessDeniedHandler implements AccessDeniedHandler {
 

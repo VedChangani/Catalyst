@@ -10,8 +10,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-// Builds the ADMIN order-list query as a JPA Criteria specification: every filter is a bound
-// parameter (no SQL string building) and is evaluated by the database, together with paging.
 public final class OrderSpecifications {
 
     private static final char LIKE_ESCAPE = '!';
@@ -21,9 +19,6 @@ public final class OrderSpecifications {
 
     public static Specification<OrderEntity> matching(AdminOrderQuery q) {
         return (root, query, cb) -> {
-            // The list response shows the customer and the creating staff member, so load both
-            // in the same query (many-to-one fetches: rows are not multiplied and paging stays in
-            // the database). Skipped for the count query, which selects a Long.
             if (query.getResultType() != Long.class && query.getResultType() != long.class) {
                 root.fetch("user", JoinType.LEFT);
                 root.fetch("createdBy", JoinType.LEFT);
@@ -60,7 +55,6 @@ public final class OrderSpecifications {
                 predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), q.getDateFrom().atStartOfDay()));
             }
             if (q.getDateTo() != null) {
-                // exclusive start of the next day = inclusive of all of dateTo
                 predicates.add(cb.lessThan(root.get("createdAt"), q.getDateTo().plusDays(1).atStartOfDay()));
             }
             if (q.getMinAmount() != null) {

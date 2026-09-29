@@ -12,12 +12,6 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.LocalDateTime;
 
-/**
- * Fires when an unauthenticated request is rejected by the security filter chain itself
- * (missing/invalid/expired JWT) - this happens before the request ever reaches a controller,
- * so {@link GlobalExceptionHandler} cannot see it. Writes the same ErrorResponse shape so every
- * 401 the API returns looks the same.
- */
 @Component
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 

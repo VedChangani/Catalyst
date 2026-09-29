@@ -34,17 +34,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-/**
- * A5: ADMIN cashier management (/admin/cashiers), deactivation semantics, and cashier My Sales
- * (/pos/sales), through the real SecurityConfig, JWT filter, controllers, services and H2 database.
- * Deliberately NOT @Transactional so every service transaction really commits.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class CashierManagementTest {
 
-    private static final String PASSWORD = "Secret123";
+    private static final String PASSWORD = "Secret123!";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
@@ -83,8 +78,6 @@ class CashierManagementTest {
         categoryRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private UserEntity account(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
@@ -148,8 +141,6 @@ class CashierManagementTest {
         return null;
     }
 
-    // ---- creation ----
-
     @Test
     void admin_createsEnabledCashier_withHashedPassword_andNoSecretsInResponse() throws Exception {
         String email = "new-cashier-" + s + "@example.com";
@@ -175,7 +166,6 @@ class CashierManagementTest {
         assertFalse(raw.contains(PASSWORD));
         assertFalse(raw.contains(saved.getPassword()));
 
-        // and the new cashier can sign in and use the POS
         loginToken(email, PASSWORD);
     }
 
@@ -233,8 +223,6 @@ class CashierManagementTest {
         }
     }
 
-    // ---- authorization of every management endpoint ----
-
     @Test
     void everyCashierManagementEndpoint_isAdminOnly() throws Exception {
         String create = createBody("Nope", "nope-" + s + "@example.com", TestMobiles.next(), null);
@@ -244,7 +232,7 @@ class CashierManagementTest {
             assertEquals(403, perform(json(as(patch("/admin/cashiers/" + cashierB.getUserId() + "/status"), actor),
                     "{\"enabled\":false}")).getResponse().getStatus());
             assertEquals(403, perform(json(as(post("/admin/cashiers/" + cashierB.getUserId() + "/reset-password"), actor),
-                    "{\"password\":\"Hijack123\"}")).getResponse().getStatus());
+                    "{\"password\":\"Hijack123!\"}")).getResponse().getStatus());
         }
         assertEquals(401, perform(get("/admin/cashiers")).getResponse().getStatus());
         assertEquals(401, perform(json(post("/admin/cashiers"), create)).getResponse().getStatus());
@@ -253,13 +241,10 @@ class CashierManagementTest {
         UserEntity b = userRepository.findByUserId(cashierB.getUserId()).orElseThrow();
         assertTrue(b.isAccountEnabled());
         assertTrue(passwordEncoder.matches(PASSWORD, b.getPassword()));
-        // there is no delete endpoint for cashiers
         int deleteStatus = perform(as(delete("/admin/cashiers/" + cashierB.getUserId()), admin)).getResponse().getStatus();
         assertTrue(deleteStatus >= 400, "DELETE must not succeed: " + deleteStatus);
         assertTrue(userRepository.findByUserId(cashierB.getUserId()).isPresent());
     }
-
-    // ---- listing & metrics ----
 
     @Test
     void list_containsOnlyCashiers_withoutSecrets() throws Exception {
@@ -283,8 +268,6 @@ class CashierManagementTest {
 
     @Test
     void metrics_countOnlyPosOrdersCreatedByEachCashier_andRevenueOnlyFromPaid() throws Exception {
-        // cashier A: paid walk-in (10.10), paid registered-customer sale x2 (20.20),
-        //            pending UPI (10.10), cancelled (10.10)
         String paidWalkIn = posSale(cashierA, null, "CASH", 1);
         String paidLinked = posSale(cashierA, customer, "CASH", 2);
         String pendingUpi = posSale(cashierA, null, "UPI", 1);
@@ -292,12 +275,9 @@ class CashierManagementTest {
         OrderEntity c = stored(cancelled);
         c.setOrderStatus(OrderStatus.CANCELLED);
         orderEntityRepository.save(c);
-        // cashier B: one paid sale x3 (30.30)
         String bSale = posSale(cashierB, customer, "CASH", 3);
-        // ONLINE order by the customer: must count for nobody
         onlineOrder(5);
 
-        // deterministic "last sale" times
         LocalDateTime latestA = LocalDateTime.of(2026, 3, 1, 12, 0);
         for (String id : new String[]{paidWalkIn, paidLinked, pendingUpi, cancelled}) {
             OrderEntity o = stored(id);
@@ -323,15 +303,12 @@ class CashierManagementTest {
         assertEquals(30.30, rowB.get("posRevenue").asDouble(), 0.0001);
         assertEquals(LocalDateTime.of(2026, 2, 2, 8, 30), LocalDateTime.parse(rowB.get("lastPosSaleAt").asText()));
 
-        // a cashier without POS sales
         UserEntity idle = account("Idle Cashier", "idle-" + s + "@example.com", "ROLE_CASHIER");
         JsonNode idleRow = rowFor(body(perform(as(get("/admin/cashiers"), admin))), idle);
         assertEquals(0, idleRow.get("ordersProcessed").asLong());
         assertEquals(0.0, idleRow.get("posRevenue").asDouble(), 0.0001);
         assertTrue(idleRow.get("lastPosSaleAt").isNull());
     }
-
-    // ---- status ----
 
     @Test
     void deactivate_keepsHistory_blocksLoginAndExistingTokens_andReactivateRestoresAccess() throws Exception {
@@ -343,7 +320,6 @@ class CashierManagementTest {
         assertEquals(200, off.getResponse().getStatus());
         assertFalse(body(off).get("enabled").asBoolean());
         assertEquals(1, body(off).get("ordersProcessed").asLong());
-        // repeating the same status is a harmless no-op
         assertEquals(200, perform(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin),
                 "{\"enabled\":false}")).getResponse().getStatus());
 
@@ -351,7 +327,6 @@ class CashierManagementTest {
         assertFalse(after.isAccountEnabled());
         assertEquals("ROLE_CASHIER", after.getRole());
 
-        // historical order X is untouched and still visible to the admin
         OrderEntity x = stored(orderX);
         assertEquals(cashierA.getId(), x.getCreatedBy().getId());
         assertEquals(customer.getId(), x.getUser().getId());
@@ -360,7 +335,6 @@ class CashierManagementTest {
         assertTrue(perform(as(get("/admin/orders").param("createdByUserId", cashierA.getUserId()), admin))
                 .getResponse().getContentAsString().contains(orderX));
 
-        // the token issued BEFORE deactivation no longer works on any protected API
         String posBody = "{\"paymentMethod\":\"CASH\",\"cartItems\":[{\"itemId\":\"" + item.getItemId() + "\",\"quantity\":1}]}";
         assertEquals(401, perform(json(post("/pos/orders").header("Authorization", "Bearer " + token), posBody))
                 .getResponse().getStatus());
@@ -369,8 +343,6 @@ class CashierManagementTest {
                 .getResponse().getStatus());
         assertEquals(1, orderEntityRepository.findByCreatedBy_IdAndSalesChannelOrderByCreatedAtDesc(cashierA.getId(), SalesChannel.POS).size());
 
-        // login is refused, and even the right password gets exactly the generic error (A8): the
-        // response never reveals that the account exists or is deactivated
         MvcResult rightPassword = perform(json(post("/login"),
                 "{\"identifier\":\"" + cashierA.getEmail() + "\",\"password\":\"" + PASSWORD + "\"}"));
         assertEquals(401, rightPassword.getResponse().getStatus());
@@ -381,7 +353,6 @@ class CashierManagementTest {
         assertEquals(401, wrongPassword.getResponse().getStatus());
         assertEquals("Email/mobile or password is incorrect", body(wrongPassword).get("message").asText());
 
-        // reactivate: the cashier can sign in and sell again, with the same history
         MvcResult on = perform(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin),
                 "{\"enabled\":true}"));
         assertEquals(200, on.getResponse().getStatus());
@@ -398,7 +369,7 @@ class CashierManagementTest {
             assertEquals(404, perform(json(as(patch("/admin/cashiers/" + nonCashier.getUserId() + "/status"), admin),
                     "{\"enabled\":false}")).getResponse().getStatus());
             assertEquals(404, perform(json(as(post("/admin/cashiers/" + nonCashier.getUserId() + "/reset-password"), admin),
-                    "{\"password\":\"NewPass123\"}")).getResponse().getStatus());
+                    "{\"password\":\"NewPass123!\"}")).getResponse().getStatus());
             UserEntity untouched = userRepository.findByUserId(nonCashier.getUserId()).orElseThrow();
             assertTrue(untouched.isAccountEnabled());
             assertTrue(passwordEncoder.matches(PASSWORD, untouched.getPassword()));
@@ -413,38 +384,34 @@ class CashierManagementTest {
     void cashierCannotBeDeletedThroughTheRetiredUserEndpoint() throws Exception {
         String orderX = posSale(cashierA, null, "CASH", 1);
 
-        // the legacy DELETE /admin/users/{id} no longer exists at all
         assertEquals(404, perform(as(delete("/admin/users/" + cashierA.getUserId()), admin)).getResponse().getStatus());
 
         assertTrue(userRepository.findByUserId(cashierA.getUserId()).isPresent());
         assertEquals(cashierA.getId(), stored(orderX).getCreatedBy().getId());
     }
 
-    // ---- password reset ----
-
     @Test
     void admin_resetsCashierPassword_hashed_notReturned_andOnlyTheNewPasswordWorks() throws Exception {
         MvcResult result = perform(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin),
-                "{\"password\":\"Fresh4567\",\"role\":\"ROLE_ADMIN\"}"));
+                "{\"password\":\"Fresh4567!\",\"role\":\"ROLE_ADMIN\"}"));
 
         assertEquals(204, result.getResponse().getStatus());
         assertEquals("", result.getResponse().getContentAsString());
         UserEntity after = userRepository.findByUserId(cashierA.getUserId()).orElseThrow();
         assertTrue(after.getPassword().startsWith("$2"));
-        assertTrue(passwordEncoder.matches("Fresh4567", after.getPassword()));
+        assertTrue(passwordEncoder.matches("Fresh4567!", after.getPassword()));
         assertEquals("ROLE_CASHIER", after.getRole());
         assertTrue(after.isAccountEnabled());
 
         assertEquals(401, perform(json(post("/login"), "{\"identifier\":\"" + cashierA.getEmail()
                 + "\",\"password\":\"" + PASSWORD + "\"}")).getResponse().getStatus());
-        loginToken(cashierA.getEmail(), "Fresh4567");
-        // other accounts are unaffected
+        loginToken(cashierA.getEmail(), "Fresh4567!");
         loginToken(cashierB.getEmail(), PASSWORD);
     }
 
     @Test
     void passwordReset_enforcesThePasswordPolicy() throws Exception {
-        for (String weak : new String[]{"short1", "onlyletters", "12345678"}) {
+        for (String weak : new String[]{"short1", "onlyletters", "12345678", "password123", "Password123", "Password!", "12345678!", "Aa1!aaa", "aA1!" + "x".repeat(69)}) {
             assertEquals(400, perform(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin),
                     "{\"password\":\"" + weak + "\"}")).getResponse().getStatus(), weak);
         }
@@ -452,22 +419,18 @@ class CashierManagementTest {
                 userRepository.findByUserId(cashierA.getUserId()).orElseThrow().getPassword()));
     }
 
-    // ---- My Sales ----
-
     @Test
     void mySales_isCreatedByTheAuthenticatedCashier_only() throws Exception {
         String walkIn = posSale(cashierA, null, "CASH", 1);
         String registered = posSale(cashierA, customer, "UPI", 1);
         String otherCashiers = posSale(cashierB, customer, "CASH", 1);
         String online = onlineOrder(1);
-        // a historical admin-entered POS sale is not the cashier's
         String adminHistorical = posSale(cashierB, null, "CASH", 1);
         OrderEntity h = stored(adminHistorical);
         h.setCreatedBy(admin);
         orderEntityRepository.save(h);
 
         String token = loginToken(cashierA.getEmail(), PASSWORD);
-        // a client-supplied cashier id is simply ignored
         MvcResult result = perform(get("/pos/sales").param("cashierId", cashierB.getUserId())
                 .param("createdByUserId", cashierB.getUserId()).header("Authorization", "Bearer " + token));
 

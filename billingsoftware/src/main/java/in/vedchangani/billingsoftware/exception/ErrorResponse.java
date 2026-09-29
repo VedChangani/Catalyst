@@ -8,11 +8,6 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
-/**
- * Uniform error body returned for every failed request. Deliberately carries only a status
- * code, a human-readable message, a timestamp and the request path - never a stack trace,
- * exception class name, or any underlying (SQL/JWT/Razorpay/AWS) error detail.
- */
 @Data
 @Builder
 @NoArgsConstructor

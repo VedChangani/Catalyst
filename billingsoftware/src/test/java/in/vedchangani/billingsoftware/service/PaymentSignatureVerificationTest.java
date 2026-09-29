@@ -36,24 +36,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-/**
- * Tests for genuine Razorpay payment signature verification.
- *
- * The first nested class exercises the REAL cryptography: it computes an HMAC-SHA256 signature
- * the way Razorpay does and feeds it to RazorpayServiceImpl, with no mocking of the verification
- * itself. That is what proves the old unconditional "return true" is gone - a test that mocked
- * the verifier could not tell the difference.
- *
- * The second nested class covers the surrounding guards in OrderServiceImpl.verifyPayment.
- */
 class PaymentSignatureVerificationTest {
 
     private static final String TEST_SECRET = "test_secret_key_do_not_use_in_prod";
 
-    /**
-     * Computes the signature exactly as Razorpay does: HMAC-SHA256 over
-     * "<razorpay_order_id>|<razorpay_payment_id>", keyed with the API secret, hex-encoded.
-     */
     private static String signature(String razorpayOrderId, String razorpayPaymentId, String secret) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
@@ -66,9 +52,6 @@ class PaymentSignatureVerificationTest {
         return hex.toString();
     }
 
-    // =====================================================================================
-    // Real cryptographic verification - nothing mocked
-    // =====================================================================================
     @Nested
     @ExtendWith(MockitoExtension.class)
     class RealSignatureCheck {
@@ -84,8 +67,6 @@ class PaymentSignatureVerificationTest {
         @BeforeEach
         void setUp() {
             razorpayService = new RazorpayServiceImpl(orderEntityRepository, userRepository);
-            // The key secret is injected via @Value in production; set it directly here so the
-            // real HMAC path runs. It is never passed as a method argument.
             ReflectionTestUtils.setField(razorpayService, "razorpayKeySecret", TEST_SECRET);
         }
 
@@ -99,7 +80,6 @@ class PaymentSignatureVerificationTest {
         @Test
         void rejectsATamperedSignature() throws Exception {
             String valid = signature("order_ABC123", "pay_XYZ789", TEST_SECRET);
-            // Flip the last hex character - a one-character forgery must not pass.
             char last = valid.charAt(valid.length() - 1);
             String tampered = valid.substring(0, valid.length() - 1) + (last == 'a' ? 'b' : 'a');
 
@@ -108,7 +88,6 @@ class PaymentSignatureVerificationTest {
 
         @Test
         void rejectsASignatureMadeWithTheWrongSecret() throws Exception {
-            // An attacker who does not hold the server's secret cannot mint a passing signature.
             String forged = signature("order_ABC123", "pay_XYZ789", "attacker_guessed_secret");
 
             assertFalse(razorpayService.verifyPaymentSignature("order_ABC123", "pay_XYZ789", forged));
@@ -116,7 +95,6 @@ class PaymentSignatureVerificationTest {
 
         @Test
         void rejectsASignatureBoundToADifferentOrderOrPayment() throws Exception {
-            // Correctly signed, but for a different order: replaying it elsewhere must fail.
             String forOtherOrder = signature("order_OTHER", "pay_XYZ789", TEST_SECRET);
             assertFalse(razorpayService.verifyPaymentSignature("order_ABC123", "pay_XYZ789", forOtherOrder));
 
@@ -134,9 +112,6 @@ class PaymentSignatureVerificationTest {
         }
     }
 
-    // =====================================================================================
-    // Guards around verification in OrderServiceImpl.verifyPayment
-    // =====================================================================================
     @Nested
     @ExtendWith(MockitoExtension.class)
     class VerifyPaymentGuards {
@@ -212,7 +187,6 @@ class PaymentSignatureVerificationTest {
             return request;
         }
 
-        // ---- Valid signature settles the order ----
         @Test
         void validSignatureMarksOrderPaid() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -231,7 +205,6 @@ class PaymentSignatureVerificationTest {
             assertEquals("rzp_pay_1", order.getPaymentDetails().getRazorpayPaymentId());
         }
 
-        // ---- Invalid signature must NEVER mark the order PAID ----
         @Test
         void invalidSignatureNeverMarksOrderPaid() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -245,14 +218,12 @@ class PaymentSignatureVerificationTest {
             assertThrows(RuntimeException.class,
                     () -> orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "forged_sig")));
 
-            // The order is left exactly as it was - not PAID, nothing persisted.
             assertEquals(OrderStatus.PENDING_PAYMENT, order.getOrderStatus());
             assertEquals(PaymentDetails.PaymentStatus.PENDING, order.getPaymentDetails().getStatus());
             assertNull(order.getPaymentDetails().getRazorpayPaymentId());
             verify(orderEntityRepository, never()).save(any());
         }
 
-        // ---- Supplied razorpay_order_id must match the one stored against the local order ----
         @Test
         void mismatchedRazorpayOrderIdIsRejectedBeforeSignatureIsEvenChecked() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -270,7 +241,6 @@ class PaymentSignatureVerificationTest {
             verify(orderEntityRepository, never()).save(any());
         }
 
-        // ---- A user cannot settle another user's order ----
         @Test
         void otherUsersOrderIsRejected() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -289,7 +259,6 @@ class PaymentSignatureVerificationTest {
             verify(orderEntityRepository, never()).save(any());
         }
 
-        // ---- Repeating the same successful verification is idempotent ----
         @Test
         void repeatedVerificationIsIdempotent() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -302,18 +271,15 @@ class PaymentSignatureVerificationTest {
             when(razorpayService.verifyPaymentSignature("rzp_order_1", "rzp_pay_1", "good_sig")).thenReturn(true);
 
             OrderResponse first = orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "good_sig"));
-            // Same call again - the order is now PAID and must survive the replay unchanged.
             OrderResponse second = orderService.verifyPayment(aRequest("rzp_order_1", "rzp_pay_1", "good_sig"));
 
             assertEquals(OrderStatus.PAID, first.getOrderStatus());
             assertEquals(OrderStatus.PAID, second.getOrderStatus());
             assertEquals("COMPLETED", second.getPaymentStatus());
             assertEquals("rzp_pay_1", order.getPaymentDetails().getRazorpayPaymentId());
-            // Persisted exactly once: the replay does not write duplicate payment state.
             verify(orderEntityRepository, times(1)).save(any(OrderEntity.class));
         }
 
-        // ---- A different payment replayed against an already-PAID order is still rejected ----
         @Test
         void differentPaymentAgainstPaidOrderIsRejected() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -331,7 +297,6 @@ class PaymentSignatureVerificationTest {
             verify(orderEntityRepository, never()).save(any());
         }
 
-        // ---- Invalid order states can never reach PAID ----
         @Test
         void cancelledOrderCannotBecomePaid() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -346,8 +311,6 @@ class PaymentSignatureVerificationTest {
             assertTrue(ex.getMessage().contains("CANCELLED"));
 
             assertEquals(OrderStatus.CANCELLED, cancelled.getOrderStatus());
-            // Batch 14: the signature may be evaluated for a diagnostic late-payment log, but a
-            // terminal order is never saved, so it can never become PAID (see LatePaymentHandlingTest).
             verify(orderEntityRepository, never()).save(any());
         }
 
@@ -365,12 +328,9 @@ class PaymentSignatureVerificationTest {
             assertTrue(ex.getMessage().contains("PAYMENT_FAILED"));
 
             assertEquals(OrderStatus.PAYMENT_FAILED, failed.getOrderStatus());
-            // Batch 14: the signature may be evaluated for a diagnostic late-payment log, but a
-            // terminal order is never saved, so it can never become PAID (see LatePaymentHandlingTest).
             verify(orderEntityRepository, never()).save(any());
         }
 
-        // ---- No Razorpay order was ever created for this local order ----
         @Test
         void orderWithNoRazorpayOrderIdIsRejected() {
             UserEntity alice = aUser(1L, "alice@example.com");
@@ -387,7 +347,6 @@ class PaymentSignatureVerificationTest {
             verify(orderEntityRepository, never()).save(any());
         }
 
-        // ---- Nonexistent order ----
         @Test
         void nonexistentOrderIsRejected() {
             authenticateAs("alice@example.com");

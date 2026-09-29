@@ -18,9 +18,6 @@ import {
     statusLabel
 } from "../../util/orderFormat.js";
 
-// The customer's unified purchase history: online orders and in-store (POS) purchases that a
-// cashier linked to this account. The backend returns exactly that list (newest first, all of it,
-// no pagination); walk-in POS sales are never part of it. Admins get the order-management list.
 const MyOrders = () => {
     const navigate = useNavigate();
     const [orders, setOrders] = useState([]);
@@ -32,7 +29,6 @@ const MyOrders = () => {
         const controller = new AbortController();
         setLoading(true);
         setLoadError(null);
-        // Only the caller's own orders; ownership is enforced backend-side, not just here.
         myOrders(controller.signal)
             .then((response) => setOrders(Array.isArray(response.data) ? response.data : []))
             .catch((error) => {

@@ -10,7 +10,6 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** Bean-validation front for {@link PasswordPolicy}. Null is left to {@code @NotBlank}. */
 @Documented
 @Constraint(validatedBy = StrongPasswordValidator.class)
 @Target({ElementType.FIELD, ElementType.PARAMETER})

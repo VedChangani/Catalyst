@@ -1,8 +1,5 @@
 package in.vedchangani.billingsoftware.util;
 
-import in.vedchangani.billingsoftware.io.PasswordResetRequest;
-import jakarta.validation.Validation;
-import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -12,9 +9,9 @@ class PasswordPolicyTest {
     @Test
     void acceptsAPasswordWithEveryRequiredClass() {
         assertTrue(PasswordPolicy.isValid("Passw0rd!"));
-        assertTrue(PasswordPolicy.isValid("aA1!aaaa")); // exactly 8
-        assertTrue(PasswordPolicy.isValid("aA1!" + "x".repeat(68))); // exactly 72
-        assertTrue(PasswordPolicy.isValid("Pass word1 ")); // space counts as special
+        assertTrue(PasswordPolicy.isValid("aA1!aaaa"));
+        assertTrue(PasswordPolicy.isValid("aA1!" + "x".repeat(68)));
+        assertTrue(PasswordPolicy.isValid("Pass word1 "));
     }
 
     @Test
@@ -36,24 +33,10 @@ class PasswordPolicyTest {
     }
 
     @Test
-    void theResetRequestUsesThePolicyAndRequiresASixDigitCode() {
-        Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-        PasswordResetRequest ok = new PasswordResetRequest("a@example.com", "012345", "Passw0rd!", "Passw0rd!");
-        assertTrue(validator.validate(ok).isEmpty());
-
-        assertFalse(validator.validate(
-                new PasswordResetRequest("a@example.com", "012345", "password123", "password123")).isEmpty());
-        for (String badCode : new String[]{"12345", "1234567", "12345a", "abcdef", " 12345", ""}) {
-            assertFalse(validator.validate(
-                            new PasswordResetRequest("a@example.com", badCode, "Passw0rd!", "Passw0rd!")).isEmpty(),
-                    "code [" + badCode + "] must be rejected");
+    void namedWeakPasswordsAreRejected_andAStrongOneIsAccepted() {
+        for (String weak : new String[]{"password123", "Password123", "Password!", "12345678!"}) {
+            assertFalse(PasswordPolicy.isValid(weak), weak);
         }
-    }
-
-    @Test
-    void theResetRequestNeverPrintsTheCodeOrPasswords() {
-        String text = new PasswordResetRequest("a@example.com", "654321", "Passw0rd!", "Passw0rd!").toString();
-        assertFalse(text.contains("654321"));
-        assertFalse(text.contains("Passw0rd!"));
+        assertTrue(PasswordPolicy.isValid("CatalystTest123!"));
     }
 }

@@ -1,9 +1,5 @@
-// Client-side (UX only) validation for the Account page. The backend re-validates everything and
-// is the authority; these rules mirror it so most mistakes are caught before a request is sent.
-
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Optional +91 / 91 / leading 0, common separators, then a 10-digit Indian mobile (starts 6-9).
 export const normalizeMobile = (value) => {
     let digits = (value || "").trim().replace(/[\s\-().]/g, "");
     if (digits.startsWith("+91")) {
@@ -16,8 +12,6 @@ export const normalizeMobile = (value) => {
     return /^[6-9][0-9]{9}$/.test(digits) ? digits : null;
 };
 
-// The password policy, mirroring the backend's PasswordPolicy (which is the authority). One list
-// drives both the error message and the live hints, so they cannot disagree.
 export const PASSWORD_RULES = [
     {key: "length", label: "8–72 characters", missing: "8–72 characters", test: (p) => p.length >= 8 && p.length <= 72},
     {key: "lower", label: "Lowercase letter", missing: "a lowercase letter", test: (p) => /[a-z]/.test(p)},
@@ -26,7 +20,6 @@ export const PASSWORD_RULES = [
     {key: "special", label: "Special character", missing: "a special character", test: (p) => /[^A-Za-z0-9]/.test(p)},
 ];
 
-// [{key, label, met}] for the live hints under a password field.
 export const passwordRuleStatus = (password) =>
     PASSWORD_RULES.map(({key, label, test}) => ({key, label, met: test(password || "")}));
 
@@ -38,15 +31,6 @@ export const passwordPolicyError = (password) => {
     return `Password must include ${unmet.map((rule) => rule.missing).join(", ")}`;
 };
 
-export const emailError = (email) => {
-    const value = (email || "").trim();
-    if (!value) return "Email is required";
-    if (value.length > 254 || !EMAIL_PATTERN.test(value)) return "Enter a valid email address";
-    return null;
-};
-
-// `hadMobile`: an account that already has a mobile number cannot clear it (one that never had
-// one may leave it blank).
 export const validateProfile = (form, hadMobile) => {
     const errors = {};
     const name = form.name.trim();

@@ -18,9 +18,9 @@ test("an older request that finishes late is no longer current", () => {
 test("the newest response wins regardless of arrival order", () => {
     const gate = createLatestOnly();
     let shown = "initial";
-    const older = gate.begin();   // e.g. catalog fetched before the sale: stock 10
-    const newer = gate.begin();   // catalog fetched after the sale: stock 7
+    const older = gate.begin();
+    const newer = gate.begin();
     if (newer()) shown = "stock 7";
-    if (older()) shown = "stock 10"; // arrives last but must be ignored
+    if (older()) shown = "stock 10";
     assert.equal(shown, "stock 7");
 });

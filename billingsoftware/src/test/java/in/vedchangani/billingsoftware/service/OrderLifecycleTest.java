@@ -27,17 +27,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for order/payment lifecycle:
- *  - Cash order is PAID immediately
- *  - UPI order starts as PENDING_PAYMENT
- *  - Payment verification transitions PENDING_PAYMENT -> PAID
- *  - Invalid transitions (CANCELLED -> PAID, PAYMENT_FAILED -> PAID) are blocked
- *  - failPayment transitions PENDING_PAYMENT -> PAYMENT_FAILED
- *  - cancelOrder transitions PENDING_PAYMENT -> CANCELLED
- *  - Non-owner cannot cancel another user's order
- *  - Cannot cancel a PAID order
- */
 @ExtendWith(MockitoExtension.class)
 class OrderLifecycleTest {
 
@@ -105,8 +94,6 @@ class OrderLifecycleTest {
     private OrderEntity aPendingUpiOrder(UserEntity owner) {
         PaymentDetails pd = PaymentDetails.builder()
                 .status(PaymentDetails.PaymentStatus.PENDING)
-                // Recorded by RazorpayServiceImpl.createOrder before checkout opens; payment
-                // verification now matches the client's razorpay_order_id against this.
                 .razorpayOrderId("rzp_order_1")
                 .build();
         return OrderEntity.builder()
@@ -124,7 +111,6 @@ class OrderLifecycleTest {
                 .build();
     }
 
-    // ---- Test 1: Cash order is PAID immediately ----
     @Test
     void createCashOrder_isPaidImmediately() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -148,7 +134,6 @@ class OrderLifecycleTest {
         assertEquals("COMPLETED", result.getPaymentStatus());
     }
 
-    // ---- Test 2: UPI order starts as PENDING_PAYMENT ----
     @Test
     void createUpiOrder_isPendingPayment() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -171,7 +156,6 @@ class OrderLifecycleTest {
         assertEquals("PENDING", result.getPaymentStatus());
     }
 
-    // ---- Test 3: Verify payment transitions PENDING_PAYMENT -> PAID ----
     @Test
     void verifyPayment_pendingToPaid() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -199,7 +183,6 @@ class OrderLifecycleTest {
         assertEquals("rzp_order_1", pendingOrder.getPaymentDetails().getRazorpayOrderId());
     }
 
-    // ---- Test 4: Cannot verify payment for a CANCELLED order ----
     @Test
     void verifyPayment_rejectsCancelledOrder() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -223,7 +206,6 @@ class OrderLifecycleTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Test 5: Cannot verify payment for a PAYMENT_FAILED order ----
     @Test
     void verifyPayment_rejectsFailedOrder() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -247,7 +229,6 @@ class OrderLifecycleTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Test 6: failPayment transitions PENDING_PAYMENT -> PAYMENT_FAILED ----
     @Test
     void failPayment_pendingToFailed() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -267,7 +248,6 @@ class OrderLifecycleTest {
         assertEquals(PaymentDetails.PaymentStatus.FAILED, pendingOrder.getPaymentDetails().getStatus());
     }
 
-    // ---- Test 7: cancelOrder transitions PENDING_PAYMENT -> CANCELLED ----
     @Test
     void cancelOrder_pendingToCancelled() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -287,7 +267,6 @@ class OrderLifecycleTest {
         assertEquals(PaymentDetails.PaymentStatus.FAILED, pendingOrder.getPaymentDetails().getStatus());
     }
 
-    // ---- Test 8: Non-owner cannot cancel another user's order ----
     @Test
     void cancelOrder_rejectsNonOwner() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -303,7 +282,6 @@ class OrderLifecycleTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Test 9: Cannot cancel a PAID order ----
     @Test
     void cancelOrder_rejectsPaidOrder() {
         UserEntity alice = aUser(1L, "alice@example.com");

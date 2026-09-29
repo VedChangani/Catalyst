@@ -14,23 +14,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 
-// Read-only access to the audit log. There is deliberately no create/update/delete endpoint:
-// events are only ever written by server-side business code.
 @RestController
 @RequiredArgsConstructor
 public class ActivityController {
 
     private final AuditService auditService;
 
-    // Any signed-in role: the caller's OWN events. It takes no user/actor parameter at all - the
-    // owner is the authenticated principal.
     @GetMapping("/activity/me")
     public PagedResponse<ActivityResponse> myActivity(@RequestParam(required = false) Integer page,
                                                       @RequestParam(required = false) Integer size) {
         return auditService.getMyActivity(page, size);
     }
 
-    // ADMIN only (the /admin/** rule in SecurityConfig): system-wide events with optional filters.
     @GetMapping("/admin/activity")
     public PagedResponse<ActivityResponse> systemActivity(
             @RequestParam(required = false) AuditAction action,

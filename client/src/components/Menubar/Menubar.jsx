@@ -14,19 +14,17 @@ const Menubar = () => {
     const logout = () => {
         localStorage.removeItem("token");
         localStorage.removeItem("role");
-        clearCart(); // never carry one session's cart into the next
+        clearCart();
         setAuthData(null, null);
         navigate("/login");
     };
 
     const isActive = (path) => {
-        // an open order detail (/orders/:id, /sales/:id) still belongs to its list's entry
         return location.pathname === path
             || ((path === "/orders" || path === "/sales") && location.pathname.startsWith(`${path}/`));
     };
 
     const isAdmin = auth?.role === ROLE_ADMIN;
-    // the cart is a customer-only feature: staff never see the cart entry or its count
     const isCustomer = auth?.role === ROLE_USER;
     const navItems = NAV_ITEMS[auth?.role] ?? [];
 
@@ -114,7 +112,6 @@ const Menubar = () => {
                                         Account
                                     </Link>
                                 </li>
-                                {/* Customers and cashiers: their own log. Admins use the System Activity nav entry. */}
                                 {!isAdmin && (
                                     <li>
                                         <Link

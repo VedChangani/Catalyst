@@ -35,11 +35,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Analytics batch 2: topByQuantity / topByRevenue (from order-line snapshots of PAID orders paid in
- * the range) and the point-in-time inventory summary, through the real endpoint on H2 (MySQL mode).
- * Range for every test: custom 2026-03-10 .. 2026-03-12.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -81,8 +76,6 @@ class AnalyticsProductInventoryTest {
             category = null;
         }
     }
-
-    // ---- helpers ----
 
     private static BigDecimal money(Double value) {
         return value == null ? null : BigDecimal.valueOf(value);
@@ -142,19 +135,14 @@ class AnalyticsProductInventoryTest {
                 .stockQuantity(stock).reservedQuantity(reserved).lowStockThreshold(threshold).active(active).build());
     }
 
-    // ---- top by quantity ----
-
     private void seedQuantityDataset() {
-        // Paid: registered ONLINE customer and a POS walk-in both contribute; the split is irrelevant.
         paid(line("A", "Alpha", 10.0, 3), line("B", "Beta", 50.0, 1));
         order(SalesChannel.ONLINE, customer, OrderStatus.PAID, 1.0, t(10, 8, 0), null,
                 line("A", "Alpha", 10.0, 2), line("C", "Gamma", 5.0, 5));
         paid(line("D", "Delta", 1.0, 5), line("E", "Epsilon", 2.0, 4), line("F", "Zeta", 3.0, 3), line("G", "Eta", 4.0, 2));
-        // Excluded: not PAID
         order(SalesChannel.ONLINE, customer, OrderStatus.PENDING_PAYMENT, 1.0, t(11, 9, 0), null, line("A", "Alpha", 10.0, 100));
         order(SalesChannel.ONLINE, customer, OrderStatus.PAYMENT_FAILED, 1.0, t(11, 9, 0), null, line("B", "Beta", 50.0, 100));
         order(SalesChannel.POS, null, OrderStatus.CANCELLED, 1.0, t(11, 9, 0), null, line("C", "Gamma", 5.0, 100));
-        // Excluded: PAID but outside the range (after / before)
         order(SalesChannel.POS, null, OrderStatus.PAID, 1.0, t(13, 0, 0), null, line("A", "Alpha", 10.0, 1000));
         order(SalesChannel.POS, null, OrderStatus.PAID, 1.0, t(9, 23, 59), null, line("B", "Beta", 50.0, 1000));
     }
@@ -164,12 +152,10 @@ class AnalyticsProductInventoryTest {
         seedQuantityDataset();
         JsonNode top = analytics().get("topByQuantity");
 
-        // A=5, C=5, D=5 (three-way tie -> itemId ascending), E=4, F=3; G=2 and B=1 fall off the top 5.
         assertEquals(List.of("A", "C", "D", "E", "F"), itemIds(top));
         assertEquals(5, product(top, "A").get("quantity").asInt());
         assertEquals(4, product(top, "E").get("quantity").asInt());
         assertEquals("Alpha", product(top, "A").get("name").asText());
-        // A appears in a POS walk-in order and an ONLINE registered-customer order: 30 + 20
         assertEquals(50.0, product(top, "A").get("revenue").asDouble(), EPS);
     }
 
@@ -178,7 +164,6 @@ class AnalyticsProductInventoryTest {
         seedQuantityDataset();
         JsonNode top = analytics().get("topByQuantity");
 
-        // 100-unit lines on non-PAID orders and 1000-unit lines outside the range would dominate if counted.
         for (JsonNode p : top) {
             assertTrue(p.get("quantity").asInt() <= 5, "unexpected quantity for " + p);
         }
@@ -186,7 +171,6 @@ class AnalyticsProductInventoryTest {
 
     @Test
     void topProducts_useEffectivePaidTime() throws Exception {
-        // UPI: created before the range, paid inside it -> counted. Created inside, paid after -> not.
         order(SalesChannel.ONLINE, customer, OrderStatus.PAID, 1.0, t(9, 23, 58), t(10, 0, 3), line("IN", "Inside", 10.0, 2));
         order(SalesChannel.ONLINE, customer, OrderStatus.PAID, 1.0, t(12, 23, 58), t(13, 0, 2), line("OUT", "Outside", 10.0, 9));
 
@@ -196,48 +180,42 @@ class AnalyticsProductInventoryTest {
         assertEquals(List.of("IN"), itemIds(body.get("topByRevenue")));
     }
 
-    // ---- top by revenue / snapshot / nulls ----
-
     @Test
     void topByRevenue_usesHistoricalSnapshot_notCurrentCatalog() throws Exception {
-        // The catalog now says P1 is "Renamed Pen" at 999; P2's item no longer exists at all.
         ItemEntity current = item("P1", 100, 0, 5, true);
         current.setName("Renamed Pen");
         current.setPrice(BigDecimal.valueOf(999));
         itemRepository.save(current);
 
-        // grandTotal includes 1% tax (131.3); product revenue must stay pre-tax price x quantity.
         order(SalesChannel.POS, null, OrderStatus.PAID, 131.3, t(11, 9, 0), null,
                 line("P1", "Pen", 10.0, 3), line("P2", "Book", 100.0, 1));
-        // Same item sold later at a different snapshot price and spelled differently.
         order(SalesChannel.ONLINE, customer, OrderStatus.PAID, 40.4, t(12, 9, 0), null,
                 line("P1", "Pen (old)", 20.0, 2));
 
         JsonNode top = analytics().get("topByRevenue");
 
         assertEquals(List.of("P2", "P1"), itemIds(top));
-        assertEquals(100.0, product(top, "P2").get("revenue").asDouble(), EPS);   // not 131.3
-        assertEquals("Book", product(top, "P2").get("name").asText());            // no catalog row at all
-        assertEquals(70.0, product(top, "P1").get("revenue").asDouble(), EPS);    // 3x10 + 2x20, not 5x999
+        assertEquals(100.0, product(top, "P2").get("revenue").asDouble(), EPS);
+        assertEquals("Book", product(top, "P2").get("name").asText());
+        assertEquals(70.0, product(top, "P1").get("revenue").asDouble(), EPS);
         assertEquals(5, product(top, "P1").get("quantity").asInt());
-        // Representative name = MAX over the snapshot names ("Pen (old)" > "Pen"), never "Renamed Pen".
         assertEquals("Pen (old)", product(top, "P1").get("name").asText());
     }
 
     @Test
     void topProducts_nullPriceQuantityAndName_areHandledDeliberately() throws Exception {
-        paid(line("P3", "NoPrice", null, 4),     // quantity counts, no revenue, not in topByRevenue
-                line("P4", "NoQty", 5.0, null),  // excluded from both
-                line("P5", null, 70.0, 1),       // no name: must not break the response
+        paid(line("P3", "NoPrice", null, 4),
+                line("P4", "NoQty", 5.0, null),
+                line("P5", null, 70.0, 1),
                 line("P6", "Gadget", 70.0, 1));
 
         JsonNode body = analytics();
         JsonNode byQty = body.get("topByQuantity");
         JsonNode byRev = body.get("topByRevenue");
 
-        assertEquals(List.of("P3", "P5", "P6"), itemIds(byQty));       // P4 has no quantity; ties on itemId
+        assertEquals(List.of("P3", "P5", "P6"), itemIds(byQty));
         assertEquals(0.0, product(byQty, "P3").get("revenue").asDouble(), EPS);
-        assertEquals(List.of("P5", "P6"), itemIds(byRev));             // P3 has no price; tie 70/70 on itemId
+        assertEquals(List.of("P5", "P6"), itemIds(byRev));
         assertTrue(product(byRev, "P5").get("name").isNull());
         assertEquals(70.0, product(byRev, "P5").get("revenue").asDouble(), EPS);
     }
@@ -247,7 +225,6 @@ class AnalyticsProductInventoryTest {
         seedQuantityDataset();
         JsonNode top = analytics().get("topByRevenue");
 
-        // A=50, B=50 (tie -> A first), C=25, F=9, E=8, G=8 (tie -> E first), D=5; G and D fall off the top 5.
         assertEquals(5, top.size());
         assertEquals(List.of("A", "B", "C", "F", "E"), itemIds(top));
         for (int i = 1; i < top.size(); i++) {
@@ -279,27 +256,25 @@ class AnalyticsProductInventoryTest {
         assertFalse(raw.contains("ORD"));
     }
 
-    // ---- inventory ----
-
     @Test
     void inventorySummary_boundariesReservationInactiveAndUntracked() throws Exception {
-        item("I1", 10, 0, 5, true);       // available 10 > threshold 5          -> healthy
-        item("I2", 5, 0, 5, true);        // available 5 == threshold            -> low
-        item("I3", 10, 6, 5, true);       // reserved reduces available to 4     -> low
-        item("I4", 3, 3, 5, true);        // available 0                         -> out (not low)
-        item("I5", 2, 3, 5, true);        // available -1                        -> out
-        item("I6", 0, 0, 5, false);       // inactive                            -> nothing
-        item("I7", 1, 0, 5, false);       // inactive, would be low if active    -> nothing
-        item("I8", null, null, null, null); // legacy, never backfilled           -> untracked
-        item("I9", 5, null, 5, true);     // reserved unknown                    -> untracked
-        item("I10", 1, 0, null, true);    // no threshold: not low, not out, tracked
-        item("I11", 1, 0, 1, true);       // available 1 == threshold 1          -> low
+        item("I1", 10, 0, 5, true);
+        item("I2", 5, 0, 5, true);
+        item("I3", 10, 6, 5, true);
+        item("I4", 3, 3, 5, true);
+        item("I5", 2, 3, 5, true);
+        item("I6", 0, 0, 5, false);
+        item("I7", 1, 0, 5, false);
+        item("I8", null, null, null, null);
+        item("I9", 5, null, 5, true);
+        item("I10", 1, 0, null, true);
+        item("I11", 1, 0, 1, true);
 
         JsonNode inventory = analytics().get("inventory");
 
-        assertEquals(3, inventory.get("lowStock").asInt());     // I2, I3, I11
-        assertEquals(2, inventory.get("outOfStock").asInt());   // I4, I5
-        assertEquals(2, inventory.get("untracked").asInt());    // I8, I9
+        assertEquals(3, inventory.get("lowStock").asInt());
+        assertEquals(2, inventory.get("outOfStock").asInt());
+        assertEquals(2, inventory.get("untracked").asInt());
     }
 
     @Test
@@ -310,7 +285,6 @@ class AnalyticsProductInventoryTest {
         assertEquals(0, empty.get("untracked").asInt());
 
         item("I1", 0, 0, 5, true);
-        // a range far from "now" and from the seeded data still reports the current stock state
         JsonNode other = objectMapper.readTree(mockMvc.perform(
                         get("/admin/analytics?range=custom&from=2020-01-01&to=2020-01-02")
                                 .with(user(admin.getEmail()).roles("ADMIN")))
