@@ -33,17 +33,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * End-to-end payment-lifecycle inventory behavior against the H2 "test" datasource, through the
- * real transactional OrderService proxy and the REAL Razorpay signature check (a genuine
- * HMAC-SHA256 signature is computed with the test profile's key secret - nothing is mocked).
- *
- * Notation in assertions: S = stock, R = units reserved by *other* orders, Q = this order's units.
- *
- * Deliberately NOT @Transactional, so every assertion reads what really committed or rolled back.
- * H2 runs these sequentially: they prove the guards and rollback semantics, not MySQL InnoDB
- * behavior under truly concurrent requests.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 class OrderPaymentInventoryIntegrationTest {
@@ -96,8 +85,6 @@ class OrderPaymentInventoryIntegrationTest {
         userRepository.deleteAll();
     }
 
-    // ---- helpers ----
-
     private ItemEntity anItem(String itemIdPrefix, int stock, int reservedByOthers) {
         return itemRepository.save(ItemEntity.builder()
                 .itemId(itemIdPrefix + "-" + UUID.randomUUID())
@@ -125,16 +112,12 @@ class OrderPaymentInventoryIntegrationTest {
         return new OrderRequest.OrderItemRequest(item.getItemId(), quantity);
     }
 
-    // Creates a UPI order through the real service (so it genuinely reserves stock) and attaches
-    // a Razorpay order id to it, standing in for RazorpayServiceImpl.createOrder, which would
-    // otherwise call the Razorpay API.
     private OrderEntity aPendingUpiOrderWithRazorpayOrder(String razorpayOrderId, OrderRequest.OrderItemRequest... lines) {
         OrderResponse created = orderService.createOrder(OrderRequest.builder()
                 .paymentMethod("UPI")
                 .cartItems(Arrays.asList(lines))
                 .build());
         OrderEntity order = findOrder(created.getOrderId());
-        // Unique, collision-proof id (the generated one is millisecond-based).
         order.setOrderId("PAY-IT-" + UUID.randomUUID());
         if (razorpayOrderId != null) {
             order.getPaymentDetails().setRazorpayOrderId(razorpayOrderId);
@@ -188,26 +171,22 @@ class OrderPaymentInventoryIntegrationTest {
         assertEquals(Boolean.TRUE, current.getInventoryReserved());
     }
 
-    // ================= 1. Successful verification: S-Q stock, R reserved =================
-
     @Test
     void verify_withGenuineSignature_commitsTheReservation_andMarksPaid() throws Exception {
-        ItemEntity burger = anItem("burger", 10, 2);                         // S=10, R=2
+        ItemEntity burger = anItem("burger", 10, 2);
         OrderEntity order = aPendingUpiOrderWithRazorpayOrder("rzp_ok", line(burger, 3));
-        assertStock(burger, 10, 5);                                          // UPI create: S, R+Q
+        assertStock(burger, 10, 5);
 
         OrderResponse response = orderService.verifyPayment(aGenuineVerification(order, "pay_1"));
 
         assertEquals(OrderStatus.PAID, response.getOrderStatus());
         assertEquals("COMPLETED", response.getPaymentStatus());
-        assertStock(burger, 7, 2);                                           // verified: S-Q, R
+        assertStock(burger, 7, 2);
         OrderEntity after = reload(order);
         assertEquals(OrderStatus.PAID, after.getOrderStatus());
         assertEquals("pay_1", after.getPaymentDetails().getRazorpayPaymentId());
         assertEquals(Boolean.FALSE, after.getInventoryReserved());
     }
-
-    // ================= 2-4. Rejected verifications leave everything untouched =================
 
     @Test
     void verify_withInvalidSignature_leavesStockAndOrderUnchanged() {
@@ -225,7 +204,6 @@ class OrderPaymentInventoryIntegrationTest {
     void verify_withMismatchedRazorpayOrderId_leavesStockAndOrderUnchanged() throws Exception {
         ItemEntity burger = anItem("burger", 10, 2);
         OrderEntity order = aPendingUpiOrderWithRazorpayOrder("rzp_ok", line(burger, 3));
-        // Genuinely signed - but for a different Razorpay order.
         String otherSignature = genuineSignature("rzp_other", "pay_1");
 
         assertThrows(IllegalArgumentException.class, () -> orderService.verifyPayment(
@@ -246,8 +224,6 @@ class OrderPaymentInventoryIntegrationTest {
         assertStock(burger, 10, 5);
         assertStillPendingAndReserved(order);
     }
-
-    // ================= 5-6. Repeated / replayed verification =================
 
     @Test
     void verify_repeatedWithTheSamePayment_isIdempotent_andNeverDeductsTwice() throws Exception {
@@ -275,8 +251,6 @@ class OrderPaymentInventoryIntegrationTest {
         assertEquals("pay_1", reload(order).getPaymentDetails().getRazorpayPaymentId());
     }
 
-    // ================= 7-8. Payment failure: S stock, R reserved =================
-
     @Test
     void failPayment_releasesTheReservation_andIsNotRepeatable() {
         ItemEntity burger = anItem("burger", 10, 2);
@@ -292,8 +266,6 @@ class OrderPaymentInventoryIntegrationTest {
         assertStock(burger, 10, 2);
     }
 
-    // ================= 9-10. Cancellation: S stock, R reserved =================
-
     @Test
     void cancel_releasesTheReservation_andIsNotRepeatable() {
         ItemEntity burger = anItem("burger", 10, 2);
@@ -307,8 +279,6 @@ class OrderPaymentInventoryIntegrationTest {
         assertThrows(IllegalStateException.class, () -> orderService.cancelOrder(order.getOrderId()));
         assertStock(burger, 10, 2);
     }
-
-    // ================= 11. Whichever transition commits first wins =================
 
     @Test
     void verifyFirst_thenCancelOrFail_areRejected_andCommittedStockIsNeverReleased() throws Exception {
@@ -349,14 +319,10 @@ class OrderPaymentInventoryIntegrationTest {
         assertEquals(OrderStatus.PAYMENT_FAILED, reload(order).getOrderStatus());
     }
 
-    // ================= 12. Partial commit/release failure rolls everything back =================
-
-    // Item ids sort "a-..." < "b-...": item A is mutated first, then item B fails.
     private ItemEntity[] twoItemsWithItemBsReservationDrifted(OrderEntity[] orderHolder) {
         ItemEntity itemA = anItem("a", 10, 0);
         ItemEntity itemB = anItem("b", 10, 0);
         orderHolder[0] = aPendingUpiOrderWithRazorpayOrder("rzp_ok", line(itemA, 2), line(itemB, 3));
-        // Simulate counters drifting out of sync: B now holds fewer reserved units than the order.
         ItemEntity drifted = reload(itemB);
         drifted.setReservedQuantity(1);
         itemRepository.save(drifted);
@@ -373,8 +339,8 @@ class OrderPaymentInventoryIntegrationTest {
                 () -> orderService.verifyPayment(aGenuineVerification(order, "pay_1")));
 
         assertEquals("Payment could not be completed because inventory could not be finalized.", ex.getMessage());
-        assertStock(items[0], 10, 2);   // A's commit rolled back
-        assertStock(items[1], 10, 1);   // B untouched
+        assertStock(items[0], 10, 2);
+        assertStock(items[1], 10, 1);
         assertStillPendingAndReserved(order);
     }
 
@@ -386,7 +352,7 @@ class OrderPaymentInventoryIntegrationTest {
 
         assertThrows(ConflictException.class, () -> orderService.cancelOrder(order.getOrderId()));
 
-        assertStock(items[0], 10, 2);   // A's release rolled back
+        assertStock(items[0], 10, 2);
         assertStock(items[1], 10, 1);
         assertStillPendingAndReserved(order);
     }
@@ -403,8 +369,6 @@ class OrderPaymentInventoryIntegrationTest {
         assertStock(items[1], 10, 1);
         assertStillPendingAndReserved(order);
     }
-
-    // ================= 13-14. Multi-item success / failure =================
 
     @Test
     void verify_ofAMultiItemOrder_commitsEveryLine() throws Exception {
@@ -432,8 +396,6 @@ class OrderPaymentInventoryIntegrationTest {
         assertStock(fries, 20, 4);
     }
 
-    // ================= Stale-expiry compatibility =================
-
     @Test
     void anOrderWhoseReservationWasExpired_cannotThenBeVerified() throws Exception {
         ItemEntity burger = anItem("burger", 10, 0);
@@ -441,7 +403,6 @@ class OrderPaymentInventoryIntegrationTest {
         stale.setCreatedAt(LocalDateTime.now().minusMinutes(31));
         stale = orderEntityRepository.save(stale);
 
-        // Any new order touching the same item lazily expires the stale reservation.
         orderService.createOrder(OrderRequest.builder()
                 .paymentMethod("UPI")
                 .cartItems(List.of(line(burger, 1)))
@@ -453,11 +414,9 @@ class OrderPaymentInventoryIntegrationTest {
         assertThrows(IllegalStateException.class,
                 () -> orderService.verifyPayment(aGenuineVerification(expired, "pay_late")));
 
-        assertStock(burger, 10, 1);   // nothing committed for the expired order
+        assertStock(burger, 10, 1);
         assertEquals(OrderStatus.PAYMENT_FAILED, reload(expired).getOrderStatus());
     }
-
-    // ================= Legacy pending order (never reserved) =================
 
     @Test
     void aLegacyPendingOrderThatNeverReservedStock_canStillBeVerified_withoutTouchingInventory() throws Exception {
@@ -479,6 +438,6 @@ class OrderPaymentInventoryIntegrationTest {
         OrderResponse response = orderService.verifyPayment(aGenuineVerification(saved, "pay_legacy"));
 
         assertEquals(OrderStatus.PAID, response.getOrderStatus());
-        assertStock(burger, 10, 2);   // no reservation existed, so nothing is committed
+        assertStock(burger, 10, 2);
     }
 }

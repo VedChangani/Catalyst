@@ -4,10 +4,6 @@ import Button from "../../ui/Button.jsx";
 import SectionHeader from "../../ui/SectionHeader.jsx";
 import {channelLabel, channelTone, formatCurrency, orderStatusTone, statusLabel} from "../../util/orderFormat.js";
 
-// Presentational sections for the analytics page. Every value comes from the single
-// /admin/analytics response; nothing here recalculates a metric. Shares from the backend are
-// fractions (0..1) and are only scaled to a percentage for display.
-
 const STATUSES = ["PAID", "PENDING_PAYMENT", "PAYMENT_FAILED", "CANCELLED"];
 
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -25,7 +21,6 @@ const EmptyNote = ({children}) => (
     <p className="border-2 border-dashed border-ink/40 bg-paper px-4 py-3 text-sm text-muted">{children}</p>
 );
 
-// Proportion bar: width is the backend share (or a value relative to the max for the trends).
 const ProportionBar = ({fraction, label}) => (
     <div
         className="h-3 w-full border-2 border-ink bg-paper"
@@ -36,8 +31,6 @@ const ProportionBar = ({fraction, label}) => (
     </div>
 );
 
-// One bar per backend day, in order. Labels are sparse (first / middle / last) so a 366-day range
-// stays readable; every value is still available in the hover title and the data table below.
 const Trend = ({title, description, days, valueOf, format, unit}) => {
     const values = days.map((d) => num(valueOf(d)));
     const max = Math.max(0, ...values);

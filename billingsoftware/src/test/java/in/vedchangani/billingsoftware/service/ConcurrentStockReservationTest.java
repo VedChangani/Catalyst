@@ -34,16 +34,6 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Many checkouts race for the last few units of one item, each on its own thread and its own real
- * transaction. Whatever the interleaving, stock must never be oversold: the atomic conditional
- * reserve UPDATE lets exactly the available quantity through, and the counters stay consistent.
- *
- * Scope, stated honestly: this runs on H2, which does not reproduce MySQL/InnoDB row-locking
- * behaviour, so it is a regression guard for the application's own no-oversell logic (a
- * read-then-write reservation would fail it), not a proof of InnoDB concurrency correctness.
- * Deliberately NOT @Transactional: every service call must commit or roll back for real.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 class ConcurrentStockReservationTest {
@@ -92,7 +82,6 @@ class ConcurrentStockReservationTest {
     private record Outcome(OrderResponse order, Throwable failure) {
     }
 
-    // THREADS customers press "buy 1" at the same moment
     private List<Outcome> raceForOneUnitEach(ItemEntity item, String paymentMethod) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(THREADS);
         CountDownLatch ready = new CountDownLatch(THREADS);
@@ -130,7 +119,6 @@ class ConcurrentStockReservationTest {
         return outcomes.stream().filter(o -> o.order() != null).count();
     }
 
-    // the only acceptable way to lose the race is the business conflict - not an error of any other kind
     private static void assertOnlyStockConflictsFailed(List<Outcome> outcomes) {
         outcomes.stream().filter(o -> o.failure() != null).forEach(o -> assertTrue(
                 o.failure() instanceof ConflictException, "unexpected failure: " + o.failure()));
@@ -163,7 +151,6 @@ class ConcurrentStockReservationTest {
         assertEquals(4, held.getReservedQuantity());
         assertEquals(0, held.getStockQuantity() - held.getReservedQuantity(), "nothing left to promise anyone");
 
-        // cancelling every pending order gives every unit back - once each
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(customer.getEmail(), null, List.of()));
         for (Outcome outcome : outcomes) {

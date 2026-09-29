@@ -21,7 +21,6 @@ const RANGES = [
 ];
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-// Small guard so a malformed response shows a safe error instead of crashing the render.
 const isValidResponse = (data) =>
     Boolean(data && typeof data === "object"
         && data.kpis && typeof data.kpis.revenue === "number" && typeof data.kpis.paidOrders === "number"
@@ -30,7 +29,6 @@ const isValidResponse = (data) =>
         && typeof data.inventory.outOfStock === "number");
 
 const Analytics = () => {
-    // The selected range lives in the URL (?range=&from=&to=): refresh and back/forward restore it.
     const [searchParams, setSearchParams] = useSearchParams();
     const rangeParam = searchParams.get("range");
     const range = RANGES.some((r) => r.value === rangeParam) ? rangeParam : DEFAULT_RANGE;
@@ -42,7 +40,6 @@ const Analytics = () => {
     const [loadError, setLoadError] = useState(null);
     const [reloadToken, setReloadToken] = useState(0);
 
-    // Obvious invalid input only; the backend still enforces the full rules (e.g. maximum span).
     let validationError = null;
     if (range === "custom") {
         if (!from || !to) {
@@ -66,8 +63,6 @@ const Analytics = () => {
             setLoading(false);
             return undefined;
         }
-        // A newer range selection aborts the previous request, so a slow older response can
-        // never overwrite the newest one. Old data is cleared so it is never shown for the new range.
         const controller = new AbortController();
         setLoading(true);
         setLoadError(null);

@@ -25,11 +25,7 @@ public class ItemResponse {
 
     private String sku;
     private Integer stockQuantity;
-    // Exposed alongside stockQuantity for admin inventory management (how much is held against
-    // in-flight orders). Customer-facing UI only needs availableQuantity; nothing here is
-    // sensitive enough to warrant a separate role-based response shape.
     private Integer reservedQuantity;
-    // stockQuantity - reservedQuantity: what the storefront can actually sell right now.
     private Integer availableQuantity;
     private Integer lowStockThreshold;
     private Boolean active;

@@ -33,11 +33,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Call-level tests for the inventory side of createOrder: which atomic repository operations run,
- * in what order, and what happens when one of them affects 0 rows. Real transaction rollback and
- * real stock counters are covered separately by OrderInventoryIntegrationTest against H2.
- */
 @ExtendWith(MockitoExtension.class)
 class OrderInventoryReservationTest {
 
@@ -108,8 +103,6 @@ class OrderInventoryReservationTest {
         return captor.getValue();
     }
 
-    // ---- CASH: reserve -> commit -> PAID ----
-
     @Test
     void cashOrder_reservesThenCommits_andIsSavedPaidWithNoOutstandingReservation() {
         aliceIsAuthenticated();
@@ -142,8 +135,6 @@ class OrderInventoryReservationTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- UPI: reserve only, PENDING_PAYMENT ----
-
     @Test
     void upiOrder_reservesButNeverCommits_andIsSavedPendingWithReservationFlag() {
         aliceIsAuthenticated();
@@ -159,8 +150,6 @@ class OrderInventoryReservationTest {
         assertEquals(OrderStatus.PENDING_PAYMENT, saved.getOrderStatus());
         assertEquals(Boolean.TRUE, saved.getInventoryReserved());
     }
-
-    // ---- Conflicts ----
 
     @Test
     void reservationAffectingZeroRows_isConflict_andNothingIsSaved() {
@@ -207,13 +196,10 @@ class OrderInventoryReservationTest {
         assertThrows(ConflictException.class, () -> orderService.createOrder(aRequest("UPI",
                 line("ITEM_A", 1), line("ITEM_B", 1), line("ITEM_C", 1))));
 
-        // ITEM_A's reservation is undone by the transaction rollback, not by a manual release.
         verify(itemRepository, never()).releaseReservedStock(anyString(), anyInt());
         verify(itemRepository, never()).reserveStock(eq("ITEM_C"), anyInt());
         verify(orderEntityRepository, never()).save(any());
     }
-
-    // ---- Duplicate item ids ----
 
     @Test
     void duplicateItemIds_areAggregatedIntoOneReservationCommitAndSnapshotLine() {
@@ -240,8 +226,6 @@ class OrderInventoryReservationTest {
         verifyNoInteractions(itemRepository);
     }
 
-    // ---- Deterministic lock order ----
-
     @Test
     void inventoryMutations_runInAscendingItemIdOrder_whileSnapshotKeepsCartOrder() {
         aliceIsAuthenticated();
@@ -266,8 +250,6 @@ class OrderInventoryReservationTest {
         assertEquals(List.of("ITEM_C", "ITEM_A", "ITEM_B"),
                 response.getItems().stream().map(OrderResponse.OrderItemResponse::getItemId).toList());
     }
-
-    // ---- Lazy expiry of stale reservations ----
 
     private OrderEntity aStaleReservedOrder(long id, OrderItemEntity... lines) {
         return OrderEntity.builder()
@@ -302,7 +284,6 @@ class OrderInventoryReservationTest {
         inOrder.verify(orderEntityRepository).claimStaleReservationForExpiry(eq(7L), any(), any(), any());
         inOrder.verify(itemRepository).releaseReservedStock("ITEM1", 3);
         inOrder.verify(itemRepository).reserveStock("ITEM1", 1);
-        // Every line of the expired order is released - including ITEM9, which isn't in this cart.
         inOrder.verify(itemRepository).releaseReservedStock("ITEM9", 2);
     }
 

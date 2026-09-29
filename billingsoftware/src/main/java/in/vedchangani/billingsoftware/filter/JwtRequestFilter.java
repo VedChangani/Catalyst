@@ -40,9 +40,6 @@ public class JwtRequestFilter extends OncePerRequestFilter {
             try {
                 email = jwtUtil.extractUsername(jwt);
             } catch (JwtException | IllegalArgumentException ex) {
-                // Malformed, expired, or forged token: treat this request as unauthenticated
-                // rather than letting the exception surface as a 500. Downstream authorization
-                // (SecurityConfig / RestAuthenticationEntryPoint) reports the resulting 401.
                 log.debug("Rejected invalid JWT: {}", ex.getMessage());
             }
         }
@@ -50,10 +47,6 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-                // The account is reloaded on every request, so a deactivated account's still-unexpired
-                // token is refused immediately, and validateToken also rejects a token whose
-                // tokenVersion no longer matches the account's (password reset / deactivation).
-                // Either way the request continues unauthenticated -> 401.
                 if (userDetails.isEnabled() && jwtUtil.validateToken(jwt, userDetails)) {
                     UsernamePasswordAuthenticationToken authenticationToken =
                             new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
@@ -61,8 +54,6 @@ public class JwtRequestFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authenticationToken);
                 }
             } catch (UsernameNotFoundException ex) {
-                // The token's subject no longer maps to a user (e.g. deleted account) - proceed
-                // unauthenticated rather than failing the request with a 500.
                 log.debug("Rejected JWT for unknown user: {}", ex.getMessage());
             }
         }

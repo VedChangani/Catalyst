@@ -1,8 +1,5 @@
 import {assets} from "../../assets/assets.js";
 
-// Login-only marketing panel. (Register keeps using components/AuthBrandPanel.)
-// On lg+ it fills the left 68% of a fixed-height (100vh) login screen and every size is viewport-relative
-// (vh/vw), so the whole composition fits without scrolling; the login card overlaps its right edge.
 const FEATURES = [
     {icon: "bi-cart3", title: "Sell", text: "In-store or online"},
     {icon: "bi-box-seam", title: "Manage", text: "Inventory & orders"},
@@ -10,7 +7,6 @@ const FEATURES = [
     {icon: "bi-bar-chart", title: "Grow", text: "Insights & analytics"},
 ];
 
-// Decorative data-matrix pattern (not a real QR code): deterministic pseudo-random cells plus corner finders.
 const MATRIX_N = 13;
 const MATRIX_CELLS = (() => {
     const cells = [];
@@ -38,7 +34,6 @@ const DataMatrix = ({className = "", stroke = "rgba(96,130,255,0.55)"}) => (
     </svg>
 );
 
-// Decorative barcode-like bars of varied widths/heights.
 const BARS = [2, 1, 3, 1, 1, 2, 4, 1, 2, 1, 1, 3, 2, 1, 4, 1, 2, 2, 1, 3, 1, 1, 2, 3, 1, 2];
 const Barcode = ({className = "", fill = "rgba(255,255,255,0.5)"}) => {
     let x = 0;
@@ -53,16 +48,12 @@ const Barcode = ({className = "", fill = "rgba(255,255,255,0.5)"}) => {
     );
 };
 
-// Very faint technical decoration for the cream side; absolutely positioned, behind the login card, desktop only.
 export const CreamDecor = () => (
     <div className="pointer-events-none absolute inset-0 hidden lg:block" aria-hidden="true">
-        {/* upper cluster, above the card */}
         <div className="absolute left-[75vw] top-[14vh] h-[7vh] w-[7vh] border border-primary/20" />
         <div className="absolute left-[calc(75vw+4vh)] top-[calc(14vh+4vh)] h-[7vh] w-[7vh] border border-ink/10" />
         <DataMatrix className="absolute left-[calc(75vw+11vh)] top-[13vh] h-[5vh] w-[5vh] opacity-30" stroke="rgba(37,99,235,0.6)" />
-        {/* corner bracket, upper left of the cream side */}
         <div className="absolute left-[70vw] top-[9vh] h-[3vh] w-[3vh] border-l border-t border-ink/20" />
-        {/* lower cluster, left of the bottom accent */}
         <div className="absolute bottom-[6vh] left-[74vw] h-px w-[8vw] bg-ink/10" />
         <div className="absolute bottom-[calc(6vh-1.5vh)] left-[74vw] h-[3vh] w-px bg-ink/10" />
         <div className="absolute bottom-[8vh] left-[78vw] h-[6vh] w-[6vh] border border-primary/15" />
@@ -72,7 +63,6 @@ export const CreamDecor = () => (
 const LoginBrandPanel = () => {
     return (
         <aside className="relative overflow-hidden bg-ink px-6 py-8 sm:px-10 lg:absolute lg:inset-y-0 lg:left-0 lg:w-[68%] lg:px-[5.7vw] lg:py-0">
-            {/* Subtle grid texture */}
             <div
                 className="pointer-events-none absolute inset-0 opacity-[0.06]"
                 style={{
@@ -82,7 +72,6 @@ const LoginBrandPanel = () => {
                 }}
             />
 
-            {/* Faint technical linework (decorative, desktop only) */}
             <div className="pointer-events-none absolute right-[8%] top-0 hidden h-[10%] w-[10%] border-x border-b border-primary/30 lg:block" aria-hidden="true" />
             <div className="pointer-events-none absolute right-[6%] top-[9%] hidden h-[6%] w-[6%] border border-primary/25 lg:block" aria-hidden="true" />
             <div
@@ -91,7 +80,6 @@ const LoginBrandPanel = () => {
                 aria-hidden="true"
             />
             <div className="pointer-events-none absolute right-[3%] top-[43%] hidden h-[10%] w-[6%] border border-primary/25 lg:block" aria-hidden="true" />
-            {/* Restored technical motifs, all in free space and behind the content */}
             <div className="pointer-events-none absolute left-[62%] top-[27%] hidden lg:block" aria-hidden="true">
                 <DataMatrix className="h-[11vh] w-[11vh] opacity-25" />
             </div>
@@ -102,13 +90,7 @@ const LoginBrandPanel = () => {
             <div className="pointer-events-none absolute bottom-[9vh] right-[4%] hidden h-[4vh] w-[4vh] border-b border-r border-primary/35 lg:block" aria-hidden="true" />
             <div className="pointer-events-none absolute -left-16 -top-16 h-64 w-64 rounded-full bg-primary/15 blur-3xl" aria-hidden="true" />
 
-            {/* Content, placed in vh so it sits where the reference has it: logo ~9%, eyebrow ~20%,
-                headline 24-47%, description ~52%, features 63-74%. */}
             <div className="relative z-10 lg:pt-[6.5vh]">
-                {/* Logo directly on the navy: the navy lettering is remapped to white and the blue mark
-                    is kept, using an inline SVG colour-matrix filter (the asset is unchanged). The file
-                    has wide transparent margins, so it is cropped to the artwork (x 147-2036, y 179-543
-                    of 2172x724) with percentages, and sized by height. */}
                 <svg width="0" height="0" className="absolute" aria-hidden="true" focusable="false">
                     <filter id="catalyst-logo-on-dark" colorInterpolationFilters="sRGB">
                         <feColorMatrix
@@ -162,8 +144,6 @@ const LoginBrandPanel = () => {
                 </ul>
             </div>
 
-            {/* Decorative watermark: absolutely positioned near the bottom, so it never adds page height.
-                Width (~4.8em) is kept clear of the card that overlaps from the right. */}
             <div className="pointer-events-none absolute bottom-[4.5vh] left-[5.7vw] hidden select-none lg:block" aria-hidden="true">
                 <p
                     className="whitespace-nowrap font-extrabold leading-[0.8] tracking-tight"

@@ -48,11 +48,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
 
-    // Money (prices, subtotal, 1% tax, grand total) is BigDecimal with one rounding rule - see
-    // util/Money. The frontend cart summary shows the same figures for display only.
-
-    // A PENDING_PAYMENT order older than this is treated as abandoned: its reservation is
-    // released lazily the next time another order touches one of its items.
     static final Duration RESERVATION_TIMEOUT = Duration.ofMinutes(30);
 
     private static final String STOCK_UNAVAILABLE_MESSAGE = "Insufficient stock or item is unavailable";
@@ -60,15 +55,9 @@ public class OrderServiceImpl implements OrderService {
     private final OrderEntityRepository orderEntityRepository;
     private final UserRepository userRepository;
     private final ItemRepository itemRepository;
-    // Used only for cryptographic signature verification; the Razorpay key secret stays
-    // inside RazorpayServiceImpl and never crosses this boundary.
     private final RazorpayService razorpayService;
     private final AuditService auditService;
 
-    // One transaction: stale-reservation expiry, every stock reservation (and, for CASH, every
-    // commit) and the order insert either all commit or all roll back. A conflict on the last
-    // cart line therefore undoes the reservations already made for earlier lines - there is no
-    // manual compensation anywhere in this method.
     @Override
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
@@ -76,9 +65,6 @@ public class OrderServiceImpl implements OrderService {
                 null, request.getPaymentMethod(), request.getCartItems(), null).getOrder();
     }
 
-    // POS entry point. Pricing, tax, inventory reservation/commit, payment handling and
-    // persistence are all the shared createOrderInternal below - only who the customer and the
-    // creator are differs, and both are resolved on the server.
     @Override
     @Transactional
     public OrderResponse createPosOrder(PosOrderRequest request) {
@@ -86,13 +72,8 @@ public class OrderServiceImpl implements OrderService {
                 request.getPhoneNumber(), request.getPaymentMethod(), request.getCartItems(), null).getOrder();
     }
 
-    // ---- Idempotent creation (Idempotency-Key) ----
-
-    // Idempotency-Key format: opaque, 1-64 chars of letters, digits and . _ : - (a UUID fits).
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("^[A-Za-z0-9._:-]{1,64}$");
 
-    // Used to run each attempt in its own transaction from OUTSIDE any transaction, so a failed
-    // attempt is fully rolled back (stock reservations included) before the retry below runs.
     private TransactionTemplate transactionTemplate;
 
     @Autowired
@@ -114,19 +95,11 @@ public class OrderServiceImpl implements OrderService {
                 request.getPaymentMethod(), request.getCartItems(), idempotencyKey));
     }
 
-    // Runs one create attempt in a single transaction. Two identical requests can both pass the
-    // "key not seen yet" check; the unique index on idempotency_key then lets only one order commit.
-    // The loser fails either on that index (DataIntegrityViolationException) or - when the winner
-    // already took the last units - on its own stock reservation (ConflictException). In both cases
-    // its transaction has already rolled back completely, and if the key's order now exists the
-    // right answer is the replay, so the attempt is run once more: it finds the key at the very
-    // start and returns the winner's order (or a key-reuse conflict) without touching inventory.
-    // If no order holds the key, the failure was unrelated to idempotency and is rethrown as is.
     private OrderCreationResult createIdempotently(String idempotencyKey, Supplier<OrderCreationResult> attempt) {
         try {
             return transactionTemplate.execute(status -> attempt.get());
         } catch (KeyReuseConflictException ex) {
-            throw ex; // a definitive answer, not a race: nothing to retry
+            throw ex;
         } catch (DataIntegrityViolationException | ConflictException ex) {
             if (idempotencyKey != null && orderEntityRepository.findByIdempotencyKey(idempotencyKey).isPresent()) {
                 log.info("Order create raced with another request holding the same Idempotency-Key; replaying");
@@ -136,7 +109,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // 409 for a key that already belongs to a different request/actor (mapped like any ConflictException).
     private static final class KeyReuseConflictException extends ConflictException {
         KeyReuseConflictException() {
             super("This Idempotency-Key was already used for a different request");
@@ -150,11 +122,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // SHA-256 over the normalised LOGICAL request. Every field is length-prefixed, so no value can
-    // bleed into its neighbour, and item lines are aggregated and sorted by itemId, so ordering or
-    // splitting of the same lines does not change the result. Only server-derived or validated
-    // inputs go in: channel (from the endpoint), the authenticated actor's id, the explicit POS
-    // customer selection, billing name/phone, payment method and (itemId, quantity) lines.
     private static String requestFingerprint(SalesChannel channel, UserEntity actor, String customerUserId,
                                              String customerName, String phoneNumber, String paymentMethod,
                                              Map<String, Integer> quantities) {
@@ -186,42 +153,29 @@ public class OrderServiceImpl implements OrderService {
         out.append(value.length()).append(':').append(value).append(';');
     }
 
-    // The same key with the same actor, channel and logical request returns the existing order as it
-    // is NOW (any status). Nothing is created, reserved, committed, released or saved.
     private OrderCreationResult replayExisting(OrderEntity existing, SalesChannel channel, UserEntity actor,
                                                String fingerprint) {
-        // ONLINE orders belong to their customer; POS orders are attributed to the staff member who
-        // entered them. customerName/phoneNumber play no part in who the actor is.
         UserEntity owner = channel == SalesChannel.ONLINE ? existing.getUser() : existing.getCreatedBy();
         boolean sameActor = existing.getSalesChannel() == channel
                 && owner != null && owner.getId().equals(actor.getId());
         if (!sameActor || !fingerprint.equals(existing.getIdempotencyFingerprint())) {
-            // one message for both cases: nothing is revealed about the original order
             throw new KeyReuseConflictException();
         }
         return new OrderCreationResult(
                 channel == SalesChannel.POS ? convertToStaffResponse(existing) : convertToResponse(existing), true);
     }
 
-    // The channel is fixed by which public method called this, never by request data.
-    // customerUserId is only meaningful for POS (an explicit registered-customer selection).
     private OrderCreationResult createOrderInternal(SalesChannel channel, String customerUserId,
                                                     String customerName, String phoneNumber,
                                                     String paymentMethodName,
                                                     List<OrderRequest.OrderItemRequest> cartItems,
                                                     String idempotencyKey) {
-        // Cart must contain at least one line item.
         if (cartItems == null || cartItems.isEmpty()) {
             throw new IllegalArgumentException("Cart is empty");
         }
 
-        // Duplicate itemIds are collapsed into one line, so each item is priced, reserved and
-        // (for CASH) committed exactly once for its total quantity. Insertion order keeps the
-        // order-item snapshot in cart order.
         Map<String, Integer> requestedQuantities = aggregateCartQuantities(cartItems);
 
-        // Idempotency runs before ANY inventory work or item lookup: a replay must still succeed
-        // when items were deactivated or repriced since the original order.
         UserEntity actor = null;
         String fingerprint = null;
         if (idempotencyKey != null) {
@@ -238,15 +192,10 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // Item identity/name/price and the order's monetary totals are never trusted from the
-        // client: each cart line is resolved to its authoritative ItemEntity by itemId, and
-        // subtotal/tax/grandTotal are computed here from those resolved prices.
         Map<String, ItemEntity> itemsById = new LinkedHashMap<>();
         for (String itemId : requestedQuantities.keySet()) {
             ItemEntity item = itemRepository.findByItemId(itemId)
                     .orElseThrow(() -> new ResourceNotFoundException("Item not found: " + itemId));
-            // Fast, friendly rejection; reserveStock re-checks active atomically regardless.
-            // A legacy item with no active value yet is treated as not sellable.
             if (!Boolean.TRUE.equals(item.getActive())) {
                 throw new ConflictException(stockUnavailableMessage(item.getName()));
             }
@@ -257,8 +206,6 @@ public class OrderServiceImpl implements OrderService {
         requestedQuantities.forEach((itemId, quantity) ->
                 orderItems.add(toOrderItemSnapshot(itemsById.get(itemId), quantity)));
 
-        // Exact decimal arithmetic: line totals and subtotal are exact, tax is 1% rounded HALF_UP
-        // to paise, grand total = subtotal + tax. No floating point anywhere.
         BigDecimal subtotal = orderItems.stream()
                 .map(item -> Money.lineTotal(item.getPrice(), item.getQuantity()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -268,10 +215,6 @@ public class OrderServiceImpl implements OrderService {
         PaymentMethod paymentMethod = PaymentMethod.valueOf(paymentMethodName);
         boolean isCash = paymentMethod == PaymentMethod.CASH;
 
-        // Ownership and creator identity are derived exclusively from the authenticated principal
-        // (Spring Security) and, for POS, an explicit customer selection that is validated and
-        // resolved here - never from client-supplied createdBy/salesChannel, customerName, or
-        // phoneNumber. Resolved before any inventory is touched.
         if (actor == null) {
             actor = getAuthenticatedUser();
         }
@@ -280,10 +223,6 @@ public class OrderServiceImpl implements OrderService {
         if (channel == SalesChannel.ONLINE) {
             customer = actor;
             createdBy = null;
-            // The ONLINE request carries no identity: the order's customerName/phoneNumber are a
-            // snapshot of the authenticated account as it is right now. Later profile edits never
-            // touch this order. An account without the required details cannot check out - and
-            // nothing is ever taken from the request or invented as a fallback.
             customerName = actor.getName() == null ? null : actor.getName().trim();
             phoneNumber = actor.getMobile() == null ? null : actor.getMobile().trim();
             if (customerName == null || customerName.isEmpty() || phoneNumber == null || phoneNumber.isEmpty()) {
@@ -294,9 +233,6 @@ public class OrderServiceImpl implements OrderService {
             requireStaff(actor);
             customer = resolvePosCustomer(customerUserId);
             createdBy = actor;
-            // A selected registered customer fills in whatever billing detail the cashier left
-            // blank, so the order's snapshot identifies them (never the other way round: typed
-            // details are not used to find an account).
             if (customer != null) {
                 if (customerName == null || customerName.isBlank()) {
                     customerName = customer.getName();
@@ -317,8 +253,6 @@ public class OrderServiceImpl implements OrderService {
                 .tax(tax)
                 .grandTotal(grandTotal)
                 .paymentMethod(paymentMethod)
-                // CASH stock is already committed above; UPI stock stays reserved until payment
-                // is verified, cancelled, fails, or the reservation expires.
                 .inventoryReserved(!isCash)
                 .idempotencyKey(idempotencyKey)
                 .idempotencyFingerprint(fingerprint)
@@ -341,10 +275,6 @@ public class OrderServiceImpl implements OrderService {
 
         newOrder = orderEntityRepository.save(newOrder);
 
-        // The single creation event, inside this transaction (a later failure rolls it back with the
-        // order). Idempotent replays return before reaching here, so they never log a second one.
-        // The actor is the authenticated caller: the customer for ONLINE, the cashier (createdBy)
-        // for POS - never the POS order's customer `user`. No customer identity goes in the details.
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("salesChannel", channel);
         details.put("paymentMethod", paymentMethod);
@@ -367,9 +297,6 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    // null id = walk-in sale. Otherwise the id must identify an existing registered customer
-    // (ROLE_USER account); anything else is reported as not found, so the caller learns nothing
-    // about staff accounts.
     private UserEntity resolvePosCustomer(String customerUserId) {
         if (customerUserId == null) {
             return null;
@@ -385,13 +312,10 @@ public class OrderServiceImpl implements OrderService {
     private Map<String, Integer> aggregateCartQuantities(List<OrderRequest.OrderItemRequest> cartItems) {
         Map<String, Integer> quantities = new LinkedHashMap<>();
         for (OrderRequest.OrderItemRequest line : cartItems) {
-            // Quantity must be a positive number.
             if (line.getQuantity() == null || line.getQuantity() <= 0) {
                 throw new IllegalArgumentException(
                         "Quantity must be greater than 0 for item: " + line.getItemId());
             }
-            // addExact: two huge positive quantities must never wrap into a negative total,
-            // which the reserve query would otherwise treat as a stock *release*.
             quantities.merge(line.getItemId(), line.getQuantity(), (existing, added) -> {
                 try {
                     return Math.addExact(existing, added);
@@ -403,15 +327,6 @@ public class OrderServiceImpl implements OrderService {
         return quantities;
     }
 
-    /**
-     * Lazily expires abandoned UPI checkouts that hold stock this order needs. There is no
-     * scheduler, so this runs on the order-creation path instead: every stale reserved
-     * PENDING_PAYMENT order containing one of these items is atomically claimed
-     * (PENDING_PAYMENT -> PAYMENT_FAILED, flag cleared) and its reserved quantities are returned
-     * for release. Only the request that wins the claim releases an order's stock, so the same
-     * reservation can never be released twice. Runs inside createOrder's transaction: if this
-     * order later fails, the expiry rolls back too and is simply retried by the next order.
-     */
     private Map<String, Integer> expireStaleReservations(Collection<String> itemIds) {
         LocalDateTime cutoff = LocalDateTime.now().minus(RESERVATION_TIMEOUT);
         List<OrderEntity> staleOrders = orderEntityRepository.findStaleReservedOrdersContainingItems(
@@ -420,9 +335,6 @@ public class OrderServiceImpl implements OrderService {
             return Map.of();
         }
 
-        // Snapshot every stale order's lines before the first claim: the claim UPDATE clears the
-        // persistence context, after which the remaining lazy items collections couldn't load.
-        // TreeMap = claims happen in ascending order id, a deterministic lock order.
         Map<Long, List<OrderItemEntity>> linesByOrderId = new TreeMap<>();
         Map<Long, String> publicIdById = new HashMap<>();
         for (OrderEntity staleOrder : staleOrders) {
@@ -435,30 +347,17 @@ public class OrderServiceImpl implements OrderService {
             int claimed = orderEntityRepository.claimStaleReservationForExpiry(orderId,
                     OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_FAILED, PaymentDetails.PaymentStatus.FAILED);
             if (claimed == 0) {
-                // Already paid, cancelled, failed or expired by another request - its stock is
-                // not ours to release.
                 return;
             }
-            // Every line of the expired order is released, including items not in this cart.
             for (OrderItemEntity line : lines) {
                 releases.merge(line.getItemId(), line.getQuantity(), Integer::sum);
             }
-            // A real PENDING_PAYMENT -> PAYMENT_FAILED transition made by the system, not by the
-            // person whose checkout happened to trigger it - so it is a SYSTEM event. It is part of
-            // that checkout's transaction and rolls back with it.
             auditService.recordSystem(AuditAction.PAYMENT_FAILED, AuditTargetType.ORDER, publicIdById.get(orderId),
                     Map.of("reason", "RESERVATION_EXPIRED"));
         });
         return releases;
     }
 
-    /**
-     * Applies every item-row mutation for this order in ascending itemId order: for each item,
-     * first release any expired reservation, then reserve (and for CASH immediately commit) this
-     * order's quantity. Because every checkout locks item rows in the same global order, two
-     * concurrent multi-item orders over overlapping items queue on the first shared row instead
-     * of each holding a row the other needs (the classic A->B / B->A deadlock).
-     */
     private void applyInventoryMutations(Map<String, Integer> releases,
                                          Map<String, Integer> reservations,
                                          Map<String, ItemEntity> itemsById,
@@ -469,8 +368,6 @@ public class OrderServiceImpl implements OrderService {
         for (String itemId : itemIds) {
             Integer releaseQuantity = releases.get(itemId);
             if (releaseQuantity != null && itemRepository.releaseReservedStock(itemId, releaseQuantity) == 0) {
-                // reservedQuantity is lower than what the expired order recorded - the counters
-                // are out of sync. Fail the whole order rather than hide it.
                 log.error("Could not release expired reservation of {} unit(s) for item {}: reservedQuantity is lower than recorded",
                         releaseQuantity, itemId);
                 throw new ConflictException(
@@ -482,8 +379,6 @@ public class OrderServiceImpl implements OrderService {
                 continue;
             }
             String itemName = itemsById.get(itemId).getName();
-            // The conditional UPDATE is the concurrency guard: 0 rows = inactive, missing, or
-            // not enough available stock at the moment of the update.
             if (itemRepository.reserveStock(itemId, quantity) == 0) {
                 throw new ConflictException(stockUnavailableMessage(itemName));
             }
@@ -497,11 +392,6 @@ public class OrderServiceImpl implements OrderService {
         return STOCK_UNAVAILABLE_MESSAGE + ": " + itemName;
     }
 
-    /**
-     * Resolves the UserEntity for the currently authenticated principal.
-     * The principal's username (set by JwtRequestFilter/AppUserDetailsService) is the
-     * user's email, so we look the user up by email - never by any client-supplied id.
-     */
     private UserEntity getAuthenticatedUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {
@@ -512,8 +402,6 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found: " + email));
     }
 
-    // Name and price come from the server-side item catalog - never from the request - so a
-    // client cannot alter what an item is called or how much it costs.
     private OrderItemEntity toOrderItemSnapshot(ItemEntity item, int quantity) {
         return OrderItemEntity.builder()
                 .itemId(item.getItemId())
@@ -523,12 +411,10 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // Customer-facing shape: no staff identity.
     private OrderResponse convertToResponse(OrderEntity newOrder) {
         return toResponseBuilder(newOrder).build();
     }
 
-    // Staff-facing shape (POS receipt, My Sales, cashier order detail): adds who entered a POS sale.
     private OrderResponse convertToStaffResponse(OrderEntity order) {
         UserEntity staff = order.getCreatedBy();
         UserEntity customer = order.getUser();
@@ -588,12 +474,6 @@ public class OrderServiceImpl implements OrderService {
 
     }
 
-    // There is deliberately no way to hard-delete an order. Every order is part of the sales
-    // history: PAID is a completed sale, CANCELLED/PAYMENT_FAILED record what happened to a
-    // checkout, and PENDING_PAYMENT holds an inventory reservation. The former ADMIN-only
-    // DELETE /orders/{id} (unused by any screen) was removed so paid history cannot be erased.
-
-    // Minimal, non-identifying context for order lifecycle events.
     private static Map<String, Object> lifecycleDetails(OrderEntity order) {
         Map<String, Object> details = new LinkedHashMap<>();
         if (order.getSalesChannel() != null) details.put("salesChannel", order.getSalesChannel());
@@ -613,17 +493,11 @@ public class OrderServiceImpl implements OrderService {
     static final int DEFAULT_ADMIN_PAGE_SIZE = 20;
     static final int MAX_ADMIN_PAGE_SIZE = 100;
     private static final int MAX_SEARCH_LENGTH = 100;
-    // Sortable API names -> entity properties. Anything else is rejected, so a client-supplied
-    // string can never become a query path.
     private static final Map<String, String> ADMIN_SORT_FIELDS = Map.of(
             "createdAt", "createdAt",
             "grandTotal", "grandTotal",
             "orderId", "orderId");
 
-    // ADMIN order management (URL-level ADMIN-only in SecurityConfig). All filtering, sorting and
-    // paging happen in one database query (plus its count); the page is mapped to a summary DTO
-    // that needs no item lines, so there is no per-order collection load. Customer and creator
-    // are fetched with the page in that same query.
     @Override
     @Transactional(readOnly = true)
     public PagedResponse<AdminOrderSummaryResponse> getAdminOrders(AdminOrderQuery query) {
@@ -668,8 +542,6 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // "field" or "field,asc|desc". Newest first by default. The id is appended as a tie-breaker so
-    // pages stay stable when many orders share a createdAt/grandTotal value.
     private Sort parseAdminSort(String sort) {
         String field = "createdAt";
         Sort.Direction direction = Sort.Direction.DESC;
@@ -719,23 +591,16 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    // The customer's unified purchase history: every order whose `user` is the authenticated
-    // customer, ONLINE and POS alike, newest first. Walk-in POS orders (user = null) and other
-    // customers' orders never match; createdBy plays no part.
     @Override
     @Transactional(readOnly = true)
     public List<OrderResponse> getMyOrders() {
         UserEntity currentUser = getAuthenticatedUser();
-        // Filtering happens in the database query (findByUser_Id...), not by fetching
-        // every order and filtering in application code.
         return orderEntityRepository.findByUser_IdOrderByCreatedAtDesc(currentUser.getId())
                 .stream()
                 .map(this::convertToResponse)
                 .collect(Collectors.toList());
     }
 
-    // The cashier's own sales: filtered in the database by createdBy = the authenticated caller,
-    // so it never lists another cashier's sales or anything the caller merely is the customer of.
     @Override
     @Transactional(readOnly = true)
     public List<OrderResponse> getMySales() {
@@ -747,9 +612,6 @@ public class OrderServiceImpl implements OrderService {
                 .collect(Collectors.toList());
     }
 
-    // One order of the authenticated customer's own history. Ownership is `user` only - never
-    // customerName, phoneNumber, createdBy or salesChannel. Line items come from the persisted
-    // OrderItemEntity snapshot, so later catalog price/name changes cannot alter what is shown.
     @Override
     @Transactional(readOnly = true)
     public OrderResponse getMyOrder(String orderId) {
@@ -757,9 +619,6 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
         UserEntity currentUser = getAuthenticatedUser();
-        // CASHIER: only a POS sale it entered itself (createdBy), walk-in or registered customer.
-        // Never another cashier's sale and never an ONLINE order. The cashier is always the
-        // authenticated principal - no id from the request takes part.
         if ("ROLE_CASHIER".equals(currentUser.getRole())) {
             boolean enteredByCaller = order.getSalesChannel() == SalesChannel.POS
                     && order.getCreatedBy() != null
@@ -769,44 +628,28 @@ public class OrderServiceImpl implements OrderService {
             }
             return convertToStaffResponse(order);
         }
-        // Everyone else (URL rules admit only USER here): the order's customer (`user`) only.
         if (order.getUser() == null || !order.getUser().getId().equals(currentUser.getId())) {
             throw new AccessDeniedException("You are not authorized to view this order");
         }
         return convertToResponse(order);
     }
 
-    // One transaction, holding the order's row lock from the first read: the reservation commit
-    // and the PAID transition either both happen or neither does. If any commit affects 0 rows,
-    // everything rolls back and the order stays exactly as it was (normally PENDING_PAYMENT) -
-    // it is never marked PAID, and never marked PAYMENT_FAILED just because the local stock
-    // commit failed. The customer may already have been charged; that case is logged for
-    // manual reconciliation rather than hidden.
     @Override
     @Transactional
     public OrderResponse verifyPayment(PaymentVerificationRequest request) {
         OrderEntity existingOrder = orderEntityRepository.findByOrderIdForUpdate(request.getOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
-        // Ownership first: a caller must not be able to probe another user's order status or
-        // payment state by watching which error comes back.
         UserEntity currentUser = getAuthenticatedUser();
         if (!existingOrder.canBeManagedBy(currentUser)) {
             throw new AccessDeniedException("You are not authorized to verify payment for this order");
         }
 
-        // A Razorpay order must already have been created for this local order (see
-        // RazorpayServiceImpl.createOrder); without a stored id there is nothing trustworthy
-        // to match the client's razorpay_order_id against.
         PaymentDetails paymentDetails = existingOrder.getPaymentDetails();
         if (paymentDetails == null || paymentDetails.getRazorpayOrderId() == null) {
             throw new IllegalStateException("No Razorpay order has been created for this order");
         }
 
-        // Idempotency: replaying the exact same successful verification returns the order as it
-        // already stands. Nothing is re-saved, so payment state cannot be duplicated or
-        // corrupted by a retry, a double-submit, or a refreshed checkout page. A *different*
-        // order/payment pair against an already-PAID order is still rejected below.
         if (existingOrder.getOrderStatus() == OrderStatus.PAID) {
             boolean sameRazorpayOrder = paymentDetails.getRazorpayOrderId().equals(request.getRazorpayOrderId());
             boolean samePayment = Objects.equals(paymentDetails.getRazorpayPaymentId(), request.getRazorpayPaymentId());
@@ -815,56 +658,38 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // Guard: only PENDING_PAYMENT orders can transition to PAID.
-        // Prevents invalid transitions like CANCELLED -> PAID or PAYMENT_FAILED -> PAID.
         if (existingOrder.getOrderStatus() != OrderStatus.PENDING_PAYMENT) {
-            // The order is never touched here, but a genuinely captured payment that arrives after
-            // the order was cancelled / failed / expired must leave a trail for manual reconciliation.
             logLateValidPayment(existingOrder, paymentDetails, request);
             throw new IllegalStateException(
                     "Cannot verify payment for order in status: " + existingOrder.getOrderStatus());
         }
 
-        // The payment being verified must be for the Razorpay order this local order was
-        // actually tied to - otherwise a genuinely-signed payment for a cheap order could be
-        // replayed to settle an expensive one.
         if (!paymentDetails.getRazorpayOrderId().equals(request.getRazorpayOrderId())) {
             throw new IllegalArgumentException("Razorpay order ID does not match this order");
         }
 
-        // Real cryptographic verification against the server-side key secret. On failure the
-        // order is left untouched in PENDING_PAYMENT - it is never marked PAID.
         if (!razorpayService.verifyPaymentSignature(request.getRazorpayOrderId(),
                 request.getRazorpayPaymentId(),
                 request.getRazorpaySignature())) {
             throw new IllegalArgumentException("Payment verification failed");
         }
 
-        // Only now, with a cryptographically verified payment, is the reservation turned into a
-        // real stock deduction.
         commitReservation(existingOrder);
 
         paymentDetails.setRazorpayPaymentId(request.getRazorpayPaymentId());
         paymentDetails.setRazorpaySignature(request.getRazorpaySignature());
         paymentDetails.setStatus(PaymentDetails.PaymentStatus.COMPLETED);
-        // Microsecond precision = what the database column stores, so the response matches later reads.
         paymentDetails.setPaidAt(LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
 
         existingOrder.setOrderStatus(OrderStatus.PAID);
 
         existingOrder = orderEntityRepository.save(existingOrder);
-        // Only the real PENDING_PAYMENT -> PAID transition is audited (a replayed verification
-        // returned earlier). No Razorpay ids or signature in the details.
         auditService.recordFor(currentUser, AuditAction.PAYMENT_VERIFIED, AuditTargetType.ORDER,
                 existingOrder.getOrderId(), lifecycleDetails(existingOrder));
         return convertToResponse(existingOrder);
 
     }
 
-    // Diagnostic only - never changes the order, inventory or the response the client sees. Called
-    // after authorisation and after the stored Razorpay order id was confirmed, and it logs ONLY
-    // when the backend signature check itself passes, so an unverified request can never produce a
-    // "valid late payment" event. The signature, the secret and the raw payload are never logged.
     private void logLateValidPayment(OrderEntity order, PaymentDetails stored, PaymentVerificationRequest request) {
         try {
             boolean terminalNotPaid = order.getOrderStatus() == OrderStatus.CANCELLED
@@ -881,28 +706,21 @@ public class OrderServiceImpl implements OrderService {
                         order.getOrderStatus());
             }
         } catch (RuntimeException ex) {
-            // diagnostics must never alter the normal conflict response
             log.warn("Could not evaluate a late payment for order {}", order.getOrderId());
         }
     }
 
-    // Same shape as verifyPayment: locked read, guards, release every reserved line, then the
-    // transition - all in one transaction, so a failed release leaves the order PENDING_PAYMENT
-    // with every earlier release in this attempt rolled back.
     @Override
     @Transactional
     public OrderResponse cancelOrder(String orderId) {
         OrderEntity existingOrder = orderEntityRepository.findByOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
-        // Only the order's owner (or, for a POS order, the staff member who entered it) may cancel.
         UserEntity currentUser = getAuthenticatedUser();
         if (!existingOrder.canBeManagedBy(currentUser)) {
             throw new AccessDeniedException("You are not authorized to cancel this order");
         }
 
-        // Only PENDING_PAYMENT orders can be cancelled. This is also what stops a repeated
-        // cancellation from releasing the same reservation twice.
         if (existingOrder.getOrderStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new IllegalStateException(
                     "Cannot cancel order in status: " + existingOrder.getOrderStatus());
@@ -926,14 +744,11 @@ public class OrderServiceImpl implements OrderService {
         OrderEntity existingOrder = orderEntityRepository.findByOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
 
-        // Only the order's owner (or, for a POS order, its creator) may mark payment as failed.
         UserEntity currentUser = getAuthenticatedUser();
         if (!existingOrder.canBeManagedBy(currentUser)) {
             throw new AccessDeniedException("You are not authorized to update this order");
         }
 
-        // Only PENDING_PAYMENT orders can transition to PAYMENT_FAILED - which also stops a
-        // repeated call from releasing the same reservation twice.
         if (existingOrder.getOrderStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new IllegalStateException(
                     "Cannot fail payment for order in status: " + existingOrder.getOrderStatus());
@@ -951,10 +766,6 @@ public class OrderServiceImpl implements OrderService {
         return convertToResponse(existingOrder);
     }
 
-    // Turns this order's reservation into a real stock deduction, one aggregated line per item in
-    // ascending itemId order (the same lock order createOrder uses). Orders that hold no
-    // reservation - CASH (committed at creation) and legacy orders from before inventory tracking
-    // (NULL flag) - have nothing to commit.
     private void commitReservation(OrderEntity order) {
         if (!Boolean.TRUE.equals(order.getInventoryReserved())) {
             return;
@@ -983,8 +794,6 @@ public class OrderServiceImpl implements OrderService {
         order.setInventoryReserved(false);
     }
 
-    // Read fully before the first stock UPDATE: those UPDATEs clear the persistence context, after
-    // which the order's lazy items collection could no longer be loaded.
     private Map<String, Integer> reservedQuantitiesByItem(OrderEntity order) {
         Map<String, Integer> quantities = new TreeMap<>();
         for (OrderItemEntity line : order.getItems()) {
@@ -993,8 +802,6 @@ public class OrderServiceImpl implements OrderService {
         return quantities;
     }
 
-    // Dashboard figures for one calendar day: PAID orders whose EFFECTIVE PAID TIME (paidAt, else
-    // createdAt) falls on that day - the same rule Analytics uses (RevenueQueries).
     @Override
     public BigDecimal sumSalesByDate(LocalDate date) {
         return Money.zeroIfNull(orderEntityRepository.sumPaidRevenue(date.atStartOfDay(), date.plusDays(1).atStartOfDay()));

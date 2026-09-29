@@ -12,8 +12,6 @@ export const fetchItems = async () => {
     return await apiClient.get('/items');
 }
 
-// General metadata edit - never sends stockQuantity/reservedQuantity; stock only changes via
-// adjustStock below.
 export const updateItem = async (itemId, payload) => {
     return await apiClient.put(`/admin/items/${itemId}`, payload);
 }

@@ -1,10 +1,8 @@
 import {assets} from "../../assets/assets.js";
 
-// Catalyst brand panel shared by the Login and Register screens (moved verbatim from Login.jsx).
 const AuthBrandPanel = () => {
     return (
         <aside className="relative overflow-hidden border-b-2 border-ink bg-ink px-8 py-8 lg:border-b-0 lg:border-r-[3px] lg:px-12 lg:py-10">
-            {/* ── Layer 0: Subtle grid texture ── */}
             <div
                 className="pointer-events-none absolute inset-0 opacity-[0.06]"
                 style={{
@@ -14,31 +12,21 @@ const AuthBrandPanel = () => {
                 }}
             />
 
-            {/* ── Layer 1: Decorative billing line-art background ──
-                 Abstract geometric shapes inspired by retail/billing/invoicing.
-                 All pointer-events-none, very low opacity, behind hero content. */}
-
-            {/* 1 ▸ Large invoice/receipt outline — upper-right, partially cropped */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '8%', right: '-28px', zIndex: 1 }}
             >
                 <svg width="160" height="210" viewBox="0 0 160 210" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <rect x="1" y="1" width="158" height="208" rx="2" stroke="rgba(220,225,235,0.13)" strokeWidth="1.5" />
-                    {/* Header line */}
                     <line x1="16" y1="30" x2="100" y2="30" stroke="rgba(220,225,235,0.11)" strokeWidth="1" />
-                    {/* Item lines */}
                     <line x1="16" y1="55" x2="130" y2="55" stroke="rgba(220,225,235,0.09)" strokeWidth="1" />
                     <line x1="16" y1="72" x2="115" y2="72" stroke="rgba(220,225,235,0.09)" strokeWidth="1" />
                     <line x1="16" y1="89" x2="125" y2="89" stroke="rgba(220,225,235,0.09)" strokeWidth="1" />
-                    {/* Dashed separator */}
                     <line x1="16" y1="115" x2="140" y2="115" stroke="rgba(220,225,235,0.10)" strokeWidth="1" strokeDasharray="4 3" />
-                    {/* Total line */}
                     <line x1="16" y1="145" x2="140" y2="145" stroke="rgba(220,225,235,0.14)" strokeWidth="1.5" />
                 </svg>
             </div>
 
-            {/* 2 ▸ Barcode-inspired vertical lines — far left edge */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '30%', left: '12px', zIndex: 1 }}
@@ -57,18 +45,14 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 3 ▸ Payment/credit-card outline — lower-left, partially cropped */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ bottom: '22%', left: '-20px', zIndex: 1 }}
             >
                 <svg width="140" height="90" viewBox="0 0 140 90" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <rect x="1" y="1" width="138" height="88" rx="6" stroke="rgba(220,225,235,0.09)" strokeWidth="1.2" />
-                    {/* Mag stripe */}
                     <rect x="1" y="18" width="138" height="14" fill="rgba(220,225,235,0.04)" />
-                    {/* Chip */}
                     <rect x="18" y="42" width="22" height="16" rx="2" stroke="rgba(220,225,235,0.07)" strokeWidth="1" />
-                    {/* Number dots */}
                     {[0, 1, 2, 3].map(g => (
                         <g key={g}>
                             {[0, 1, 2, 3].map(d => (
@@ -85,20 +69,17 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 4 ▸ QR-code-inspired abstract grid — upper-center-right area */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '6%', left: '55%', zIndex: 1 }}
             >
                 <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    {/* QR corner brackets */}
                     <rect x="0" y="0" width="14" height="14" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" fill="none" />
                     <rect x="3" y="3" width="8" height="8" fill="rgba(255,255,255,0.10)" />
                     <rect x="30" y="0" width="14" height="14" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" fill="none" />
                     <rect x="33" y="3" width="8" height="8" fill="rgba(255,255,255,0.10)" />
                     <rect x="0" y="30" width="14" height="14" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" fill="none" />
                     <rect x="3" y="33" width="8" height="8" fill="rgba(255,255,255,0.10)" />
-                    {/* Scattered data cells */}
                     <rect x="18" y="4" width="4" height="4" fill="rgba(255,255,255,0.10)" />
                     <rect x="24" y="10" width="4" height="4" fill="rgba(255,255,255,0.08)" />
                     <rect x="18" y="18" width="4" height="4" fill="rgba(255,255,255,0.12)" />
@@ -109,7 +90,6 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 5 ▸ Transaction / horizontal lines — behind receipt area */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ bottom: '10%', right: '15%', zIndex: 1 }}
@@ -123,7 +103,6 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 6 ▸ Dot cluster — upper-right corner */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '5%', right: '20%', zIndex: 1 }}
@@ -138,7 +117,6 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 7 ▸ Abstract rounded rectangle — lower-right, partially cropped */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ bottom: '-10px', right: '40%', zIndex: 1 }}
@@ -148,7 +126,6 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 8 ▸ Shopping cart outline — very subtle, mid-left */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '55%', left: '8%', zIndex: 1, opacity: 0.18 }}
@@ -160,15 +137,12 @@ const AuthBrandPanel = () => {
                 </svg>
             </div>
 
-            {/* 9 ▸ Tiny colored accent marks — cobalt line + coral dot */}
-            {/* Cobalt accent — thin horizontal mark near upper area */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '25%', right: '8%', zIndex: 1 }}
             >
                 <div style={{ width: '24px', height: '2px', backgroundColor: 'rgba(37,99,235,0.25)' }} />
             </div>
-            {/* Coral accent — tiny dot near barcode area */}
             <div
                 className="pointer-events-none absolute hidden lg:block"
                 style={{ top: '33%', left: '70px', zIndex: 1 }}
@@ -176,7 +150,6 @@ const AuthBrandPanel = () => {
                 <div style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: 'rgba(255,107,87,0.20)' }} />
             </div>
 
-            {/* 10 ▸ Faint typographic fragments — oversized, cropped */}
             <div
                 className="pointer-events-none absolute hidden lg:block select-none"
                 style={{
@@ -208,8 +181,6 @@ const AuthBrandPanel = () => {
                 ₹
             </div>
 
-            {/* ── Tablet-only: reduced decorative set ── */}
-            {/* Second barcode cluster, visible only on md screens */}
             <div
                 className="pointer-events-none absolute hidden md:block lg:hidden"
                 style={{ top: '15%', right: '10%', zIndex: 1, opacity: 0.6 }}
@@ -220,7 +191,6 @@ const AuthBrandPanel = () => {
                     ))}
                 </svg>
             </div>
-            {/* Tablet dot cluster */}
             <div
                 className="pointer-events-none absolute hidden md:block lg:hidden"
                 style={{ bottom: '20%', left: '5%', zIndex: 1 }}
@@ -233,7 +203,6 @@ const AuthBrandPanel = () => {
             </div>
 
             <div className="relative z-10 flex h-full flex-col">
-                {/* ─ Top: Application branding ─ */}
                 <div className="flex items-center gap-3">
                     <img
                         src={assets.logo}
@@ -243,7 +212,6 @@ const AuthBrandPanel = () => {
                     />
                 </div>
 
-                {/* ─ Center: Hero editorial content ─ */}
                 <div className="mt-auto mb-6 lg:mb-0">
                     <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-primary">Commerce / Operations</p>
                     <h1 className="mt-3 max-w-md text-5xl font-extrabold leading-[0.92] tracking-tight text-white sm:text-6xl lg:text-[4.25rem]">
@@ -254,23 +222,17 @@ const AuthBrandPanel = () => {
                     </p>
                 </div>
 
-                {/* ─ Lower area: Billing workspace composition ─ */}
                 <div className="relative mt-auto hidden lg:block">
-                    {/* Geometric accent 1 — thin outlined rectangle, upper-right */}
                     <div className="pointer-events-none absolute -right-4 -top-14 h-24 w-36 border-2 border-white/[0.08]" />
 
-                    {/* Geometric accent 2 — coral block behind receipt */}
                     <div className="pointer-events-none absolute -bottom-2 right-12 h-10 w-10 border-2 border-coral/30 bg-coral/20" />
 
-                    {/* Geometric accent 3 — cobalt line marker */}
                     <div className="pointer-events-none absolute -left-2 bottom-16 h-[3px] w-14 bg-primary/40" />
 
-                    {/* ── Decorative Receipt / Invoice Card ── */}
                     <div
                         className="relative ml-auto w-[280px] border-2 border-ink bg-[#FFFDF8] p-5"
                         style={{ boxShadow: '3px 3px 0 #111827' }}
                     >
-                        {/* Receipt header */}
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-ink/40">Invoice</p>
@@ -279,10 +241,8 @@ const AuthBrandPanel = () => {
                             <div className="h-2 w-2 rounded-full bg-primary" />
                         </div>
 
-                        {/* Divider */}
                         <div className="my-3 h-[1.5px] bg-ink/10" />
 
-                        {/* Line items — abstract placeholders */}
                         <div className="space-y-2 text-[12px] text-ink/70">
                             <div className="flex items-center justify-between">
                                 <span className="font-medium">Product A</span>
@@ -298,7 +258,6 @@ const AuthBrandPanel = () => {
                             </div>
                         </div>
 
-                        {/* Subtotal / Tax separator */}
                         <div className="my-3 border-t border-dashed border-ink/15" />
 
                         <div className="space-y-1 text-[11px] text-ink/50">
@@ -312,13 +271,11 @@ const AuthBrandPanel = () => {
                             </div>
                         </div>
 
-                        {/* Total */}
                         <div className="mt-3 flex items-center justify-between border-t-2 border-ink/10 pt-3">
                             <span className="text-xs font-extrabold uppercase tracking-wider text-ink">Total</span>
                             <div className="h-[7px] w-16 rounded-sm bg-primary/25" />
                         </div>
 
-                        {/* Paid badge */}
                         <div className="mt-3 flex justify-end">
                             <div className="flex items-center gap-1.5 border border-ink/10 px-2 py-0.5">
                                 <div className="h-[6px] w-[6px] rounded-full bg-coral" />
@@ -328,7 +285,6 @@ const AuthBrandPanel = () => {
                     </div>
                 </div>
 
-                {/* ─ Mobile: simplified billing artifact ─ */}
                 <div className="mt-8 block lg:hidden">
                     <div
                         className="w-full max-w-[260px] border-2 border-ink bg-[#FFFDF8] p-4"
@@ -355,7 +311,6 @@ const AuthBrandPanel = () => {
                 </div>
             </div>
 
-            {/* Background decorative — diagonal receipt outline */}
             <div className="pointer-events-none absolute -right-6 top-[15%] h-28 w-20 rotate-6 border-2 border-white/[0.05]" />
         </aside>
     );

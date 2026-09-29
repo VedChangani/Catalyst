@@ -8,9 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Request body for PATCH /account/me. The target account is always the authenticated caller, so
-// there is no user id. There is deliberately no role/enabled/authorities/permissions field: any
-// such property in the JSON is ignored on deserialization.
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -26,8 +23,6 @@ public class AccountUpdateRequest {
     @Size(max = 254, message = "Email must be at most 254 characters")
     private String email;
 
-    // Format is checked (and normalized) by the service. May be blank only for an account that
-    // has no mobile number yet (accounts created before mobile existed).
     private String mobile;
 
     public void setEmail(String email) {

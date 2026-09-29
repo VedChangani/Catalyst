@@ -29,13 +29,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for order ownership:
- *  - order creation assigns the authenticated user, never a client-supplied id
- *  - a user only ever sees their own orders (query scoped in the DB layer)
- *  - a user cannot see another user's orders
- *  - an admin can see every order via the existing /orders/latest path
- */
 @ExtendWith(MockitoExtension.class)
 class OrderOwnershipTest {
 
@@ -137,8 +130,6 @@ class OrderOwnershipTest {
 
         assertEquals(1, result.size());
         assertEquals("ORD1", result.get(0).getOrderId());
-        // Must query the database scoped by the authenticated user's id,
-        // never fetch everything and filter in Java.
         verify(orderEntityRepository).findByUser_IdOrderByCreatedAtDesc(1L);
         verify(orderEntityRepository, never()).findAllByOrderByCreatedAtDesc();
     }
@@ -149,8 +140,6 @@ class OrderOwnershipTest {
         authenticateAs("bob@example.com");
         when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.of(bob));
 
-        // Repository is queried scoped to bob's id (2L) and correctly returns nothing,
-        // simulating that all existing orders in the DB belong to alice (id 1L).
         when(orderEntityRepository.findByUser_IdOrderByCreatedAtDesc(2L))
                 .thenReturn(List.of());
 

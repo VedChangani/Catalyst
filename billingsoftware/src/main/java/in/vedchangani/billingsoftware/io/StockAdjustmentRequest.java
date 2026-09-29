@@ -7,10 +7,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// The dedicated stock-adjustment operation (e.g. receiving new stock, or correcting a count).
-// delta may be positive or negative; a zero delta is rejected here since it's not a real
-// adjustment. Actual inventory safety (e.g. not dropping stockQuantity below reservedQuantity) is
-// enforced by the repository/service, not this DTO.
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

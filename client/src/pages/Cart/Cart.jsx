@@ -9,9 +9,6 @@ import EmptyState from "../../ui/EmptyState.jsx";
 import LoadingState from "../../ui/LoadingState.jsx";
 import Button from "../../ui/Button.jsx";
 
-// Customer-only (ROLE_USER, see App.jsx): the current purchase and its checkout. The cart itself
-// is AppContext.cartItems - the same state the Shop page adds to - and checkout is the existing
-// CartSummary flow. Identity is never collected here: the backend uses the logged-in account.
 const Cart = () => {
     const navigate = useNavigate();
     const {cartItems, cartCount, isCatalogLoading} = useContext(AppContext);
@@ -52,8 +49,6 @@ const Cart = () => {
                     }
                 />
             )}
-            {/* One CartSummary instance in a stable position: the cart empties the moment a sale is
-                paid, and the receipt shown for that sale lives inside CartSummary. */}
             <div className={isEmpty ? "" : "grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]"}>
                 {!isEmpty && (
                     <section aria-label="Cart items" className="border-2 border-ink bg-surface p-2 shadow-[3px_3px_0_#111827]">

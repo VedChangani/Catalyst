@@ -42,15 +42,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-/**
- * Day 4 / Batch 14: a Razorpay payment that arrives after the local order was already cancelled /
- * failed. The order, its stock and the client-visible response must not change; only a genuine
- * (signature-verified) late payment leaves an ERROR trail for manual reconciliation.
- *
- * Real H2 persistence, real signatures (HMAC with the test secret), real services. The log is
- * captured with a logback ListAppender on OrderServiceImpl's logger (logback ships with Spring
- * Boot; nothing new is added). Deliberately NOT @Transactional.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -105,8 +96,6 @@ class LatePaymentHandlingTest {
         userRepository.deleteAll();
     }
 
-    // ---- helpers ----
-
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
@@ -118,7 +107,6 @@ class LatePaymentHandlingTest {
                 new UsernamePasswordAuthenticationToken(actor.getEmail(), null, List.of()));
     }
 
-    // A UPI order (1 x item = 1 reserved) already tied to a Razorpay order, as create-order would.
     private String pendingOrderTiedTo(String razorpayOrderId) {
         authenticateAs(customer);
         String orderId = orderService.createOrder(OrderRequest.builder()
@@ -168,8 +156,8 @@ class LatePaymentHandlingTest {
         assertNull(order.getPaymentDetails().getRazorpaySignature());
         assertEquals(Boolean.FALSE, order.getInventoryReserved());
         ItemEntity current = itemRepository.findByItemId(item.getItemId()).orElseThrow();
-        assertEquals(100, current.getStockQuantity());   // nothing committed
-        assertEquals(0, current.getReservedQuantity());  // nothing re-reserved, nothing released twice
+        assertEquals(100, current.getStockQuantity());
+        assertEquals(0, current.getReservedQuantity());
     }
 
     private String cancelled(String razorpayOrderId) {
@@ -183,8 +171,6 @@ class LatePaymentHandlingTest {
         orderService.failPayment(orderId);
         return orderId;
     }
-
-    // ---- a genuine late payment: rejected, order untouched, ERROR trail ----
 
     @Test
     void validLatePayment_onCancelledOrder_isRejected_orderUntouched_andLoggedAtError() throws Exception {
@@ -248,8 +234,6 @@ class LatePaymentHandlingTest {
         assertUntouched(orderId, OrderStatus.CANCELLED);
     }
 
-    // ---- not genuine / not applicable: no "valid late payment" event ----
-
     @Test
     void latePayment_withAnInvalidSignature_isRejected_andNeverLoggedAsValid() {
         String cancelledId = cancelled("order_bad_c");
@@ -269,7 +253,6 @@ class LatePaymentHandlingTest {
     void latePayment_signedForADifferentRazorpayOrder_isNotLogged() throws Exception {
         String orderId = cancelled("order_mine");
 
-        // a genuine signature, but for another Razorpay order than the one stored on this order
         assertThrows(IllegalStateException.class, () -> orderService.verifyPayment(
                 verification(orderId, "order_someone_else", "pay_y", sign("order_someone_else", "pay_y"))));
 
@@ -301,7 +284,7 @@ class LatePaymentHandlingTest {
         orderService.cancelOrder(orderId);
         PaymentVerificationRequest request = verification(orderId, "order_pos_late", "pay_pos", sign("order_pos_late", "pay_pos"));
 
-        authenticateAs(customer); // the associated customer has no payment control over a POS order
+        authenticateAs(customer);
         assertThrows(AccessDeniedException.class, () -> orderService.verifyPayment(request));
         assertEquals(0, lateEvents().size());
 
@@ -317,10 +300,8 @@ class LatePaymentHandlingTest {
         var paidAt = stored(orderId).getPaymentDetails().getPaidAt();
         assertNotNull(paidAt);
 
-        // identical verification: idempotent, no log
         assertEquals(OrderStatus.PAID, orderService.verifyPayment(
                 verification(orderId, "order_paid_x", "pay_first", sign("order_paid_x", "pay_first"))).getOrderStatus());
-        // a different genuine payment against the paid order: the existing conflict, no late-payment event
         assertThrows(IllegalStateException.class, () -> orderService.verifyPayment(
                 verification(orderId, "order_paid_x", "pay_second", sign("order_paid_x", "pay_second"))));
 
@@ -331,8 +312,6 @@ class LatePaymentHandlingTest {
         assertEquals(paidAt, order.getPaymentDetails().getPaidAt());
         assertEquals(99, itemRepository.findByItemId(item.getItemId()).orElseThrow().getStockQuantity());
     }
-
-    // ---- the client cannot tell a genuine late payment from a forged one ----
 
     @Test
     void httpResponse_isTheSameSafeConflict_whetherOrNotTheLateSignatureIsValid() throws Exception {
@@ -347,7 +326,7 @@ class LatePaymentHandlingTest {
         String forgedMessage = objectMapper.readTree(forged.getResponse().getContentAsString()).get("message").asText();
         assertEquals(validMessage, forgedMessage);
         assertEquals("Cannot verify payment for order in status: CANCELLED", validMessage);
-        assertEquals(1, lateEvents().size()); // only the genuine one left a trail
+        assertEquals(1, lateEvents().size());
         assertUntouched(orderId, OrderStatus.CANCELLED);
     }
 

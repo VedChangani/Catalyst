@@ -7,8 +7,6 @@ import lombok.NoArgsConstructor;
 
 import java.sql.Timestamp;
 
-// The caller's own account, as shown on the Account page. Role and status are read-only
-// information. No password/hash, token version, user id or other security data.
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

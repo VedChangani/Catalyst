@@ -5,8 +5,6 @@ import org.springframework.security.core.userdetails.User;
 
 import java.util.Collection;
 
-// The authenticated principal: Spring's User plus the account's current token version, so the JWT
-// filter can compare it with the version inside a presented token without a second lookup.
 public class AppUserPrincipal extends User {
 
     private final int tokenVersion;

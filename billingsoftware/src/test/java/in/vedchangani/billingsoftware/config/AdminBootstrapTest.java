@@ -25,18 +25,13 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-/**
- * A8: developer-provisioned initial ADMIN. Each case builds an AdminBootstrap with its own
- * configuration against the real H2 database, and "restarts" by running it again.
- * The test profile itself has bootstrap disabled, so the context's own startup created nothing.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @ExtendWith(OutputCaptureExtension.class)
 class AdminBootstrapTest {
 
-    private static final String BOOT_PASSWORD = "Boot5trapPass";
+    private static final String BOOT_PASSWORD = "Boot5trap!Pass";
 
     @Autowired private UserRepository userRepository;
     @Autowired private OrderEntityRepository orderEntityRepository;
@@ -49,7 +44,6 @@ class AdminBootstrapTest {
 
     @BeforeEach
     void setUp() {
-        // "no admin exists" must really mean none: start from an empty user table
         orderEntityRepository.deleteAll();
         userRepository.deleteAll();
         s = UUID.randomUUID().toString().substring(0, 8);
@@ -105,8 +99,8 @@ class AdminBootstrapTest {
         AdminBootstrap bootstrap = validBootstrap(" Root-" + s + "@Example.com ", "+91 " + mobile);
 
         assertTrue(bootstrap.provision());
-        assertFalse(bootstrap.provision());                                   // second start
-        assertFalse(validBootstrap("other-" + s + "@example.com", TestMobiles.next()).provision()); // changed config
+        assertFalse(bootstrap.provision());
+        assertFalse(validBootstrap("other-" + s + "@example.com", TestMobiles.next()).provision());
 
         List<UserEntity> admins = admins();
         assertEquals(1, admins.size());
@@ -120,10 +114,8 @@ class AdminBootstrapTest {
         assertNotEquals(BOOT_PASSWORD, admin.getPassword());
         assertTrue(admin.getPassword().startsWith("$2"));
         assertTrue(passwordEncoder.matches(BOOT_PASSWORD, admin.getPassword()));
-        // the bootstrapped admin signs in normally, by email or mobile
         assertEquals(200, loginStatus(email, BOOT_PASSWORD));
         assertEquals(200, loginStatus(mobile, BOOT_PASSWORD));
-        // the password never reached the logs
         assertFalse(output.getAll().contains(BOOT_PASSWORD));
     }
 
@@ -132,7 +124,6 @@ class AdminBootstrapTest {
         UserEntity existing = account("legacy-admin-" + s + "@example.com", "ROLE_ADMIN");
         String hashBefore = existing.getPassword();
 
-        // same email as the existing admin but a different password and name
         assertFalse(bootstrap(true, "Someone Else", existing.getEmail(), TestMobiles.next(), BOOT_PASSWORD).provision());
         assertFalse(validBootstrap("new-admin-" + s + "@example.com", TestMobiles.next()).provision());
 
@@ -182,7 +173,10 @@ class AdminBootstrapTest {
                 bootstrap(true, "Root", email, "12345", BOOT_PASSWORD),
                 bootstrap(true, "Root", email, mobile, "admin"),
                 bootstrap(true, "Root", email, mobile, "password"),
-                bootstrap(true, "Root", email, mobile, "12345678"));
+                bootstrap(true, "Root", email, mobile, "12345678"),
+                bootstrap(true, "Root", email, mobile, "password123"),
+                bootstrap(true, "Root", email, mobile, "Password123"),
+                bootstrap(true, "Root", email, mobile, "Password!"));
         for (AdminBootstrap b : broken) {
             IllegalStateException ex = assertThrows(IllegalStateException.class, b::provision);
             assertTrue(ex.getMessage().startsWith("Admin bootstrap misconfigured"));

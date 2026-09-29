@@ -36,28 +36,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Admin analytics (GET /admin/analytics) through the real security chain and real H2 persistence.
- * H2 runs in MySQL mode here; it proves the query logic, not MySQL-specific behaviour.
- *
- * Fixed dataset for the custom range 2026-03-10 .. 2026-03-12 (all created/paid times are fixed):
- *
- *   #   channel  method  status           grandTotal  createdAt         paidAt            counted as
- *   1   ONLINE   UPI     PAID             100         03-09 23:58       03-10 00:03       revenue, day 10 (paid after midnight)
- *   2   POS      CASH    PAID              50         03-10 12:00       -                 revenue, day 10 (paidAt NULL -> createdAt)
- *   3   POS      CASH    PAID             200         03-12 23:59:59    -                 revenue, day 12 (last instant of range)
- *   4   ONLINE   UPI     PAID             300         03-13 00:00:00    03-13 00:00:05    outside (after range)
- *   5   ONLINE   CASH    PAID              70         03-09 23:59:59    -                 outside (before range)
- *   6   ONLINE   UPI     PENDING_PAYMENT  999         03-11 09:00       -                 status count only
- *   7   ONLINE   UPI     PAYMENT_FAILED   888         03-11 09:00       -                 status count only
- *   8   POS      UPI     CANCELLED        777         03-11 09:00       -                 status count only
- *   9   NULL     NULL    PAID              30         03-11 09:00       -                 revenue, day 11, UNKNOWN channel/method
- *   10  ONLINE   CASH    NULL status      555         03-11 09:00       -                 ignored everywhere
- *   11  POS      CASH    PAID             NULL        03-11 09:00       -                 counted as a paid order worth 0
- *   12  ONLINE   UPI     PAID              40         03-11 08:00       03-11 10:00       revenue, day 11
- *
- *   Revenue 420 over 6 paid orders (avg 70). PAID orders CREATED in range: #2 #3 #9 #11 #12 = 5.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -89,8 +67,6 @@ class AnalyticsDashboardTest {
         orderEntityRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private static BigDecimal money(Double value) {
         return value == null ? null : BigDecimal.valueOf(value);
@@ -150,17 +126,12 @@ class AnalyticsDashboardTest {
         return null;
     }
 
-    // ---- revenue ----
-
     @Test
     void revenue_countsOnlyPaidOrders_byEffectivePaidTime() throws Exception {
         seedFixedDataset();
         JsonNode body = ok(CUSTOM);
 
         JsonNode kpis = body.get("kpis");
-        // 100 (UPI paid 00:03 on the 10th) + 50 + 200 + 30 + 0 (PAID, NULL total) + 40 = 420.
-        // Excluded: pending 999, failed 888, cancelled 777, NULL-status 555, and the two PAID
-        // orders just outside the range (300 after, 70 before).
         assertEquals(420.0, kpis.get("revenue").asDouble(), EPS);
         assertEquals(6, kpis.get("paidOrders").asInt());
         assertEquals(70.0, kpis.get("averageOrderValue").asDouble(), EPS);
@@ -172,14 +143,11 @@ class AnalyticsDashboardTest {
         JsonNode daily = ok(CUSTOM).get("daily");
 
         assertEquals(3, daily.size());
-        // day 10: UPI #1 (created the 9th, PAID after midnight) + CASH #2 (paidAt NULL, createdAt)
         assertEquals("2026-03-10", daily.get(0).get("date").asText());
         assertEquals(150.0, daily.get(0).get("revenue").asDouble(), EPS);
         assertEquals(2, daily.get(0).get("orders").asInt());
-        // day 11: legacy #9 (30) + PAID NULL-total #11 (0) + UPI #12 (40)
         assertEquals(70.0, daily.get(1).get("revenue").asDouble(), EPS);
         assertEquals(3, daily.get(1).get("orders").asInt());
-        // day 12: CASH #3 created 23:59:59
         assertEquals(200.0, daily.get(2).get("revenue").asDouble(), EPS);
         assertEquals(1, daily.get(2).get("orders").asInt());
     }
@@ -192,21 +160,18 @@ class AnalyticsDashboardTest {
 
         assertEquals(0.0, body.get("kpis").get("revenue").asDouble(), EPS);
         assertEquals(0, body.get("kpis").get("paidOrders").asInt());
-        // ...but it was still an order created in the range, by current status
         assertEquals(1, body.get("orderStatusCounts").get("PAID").asInt());
     }
 
     @Test
     void dateBoundaries_startInclusive_endDayInclusive_nextMidnightExcluded() throws Exception {
-        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 1.0, t(10, 0, 0, 0), null);        // first instant: in
-        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 10.0, t(12, 23, 59, 59), null);    // last second: in
-        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 100.0, t(13, 0, 0, 0), null);      // next midnight: out
-        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 1000.0, t(9, 23, 59, 59), null);   // before: out
+        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 1.0, t(10, 0, 0, 0), null);
+        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 10.0, t(12, 23, 59, 59), null);
+        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 100.0, t(13, 0, 0, 0), null);
+        seed(SalesChannel.POS, PaymentMethod.CASH, OrderStatus.PAID, 1000.0, t(9, 23, 59, 59), null);
 
         assertEquals(11.0, ok(CUSTOM).get("kpis").get("revenue").asDouble(), EPS);
     }
-
-    // ---- channel / payment method ----
 
     @Test
     void channelBreakdown_includesUnknownBucket_andShares() throws Exception {
@@ -246,25 +211,19 @@ class AnalyticsDashboardTest {
         assertEquals(1, unknown.get("orders").asInt());
     }
 
-    // ---- order status ----
-
     @Test
     void statusCounts_useCreatedAt_zeroFillAllStatuses_andIgnoreNullStatus() throws Exception {
         seedFixedDataset();
         JsonNode body = ok(CUSTOM);
         JsonNode counts = body.get("orderStatusCounts");
 
-        // created in range: PAID #2 #3 #9 #11 #12, PENDING #6, FAILED #7, CANCELLED #8. #10 has no status.
         assertEquals(5, counts.get("PAID").asInt());
         assertEquals(1, counts.get("PENDING_PAYMENT").asInt());
         assertEquals(1, counts.get("PAYMENT_FAILED").asInt());
         assertEquals(1, counts.get("CANCELLED").asInt());
         assertEquals(4, counts.size(), "no bogus bucket for the NULL-status legacy row");
-        // UPI created in range: PAID #12; FAILED #7; CANCELLED #8 (pending #6 not settled) -> 1/3
         assertEquals(1.0 / 3.0, body.get("upiSuccessRate").asDouble(), 0.0001);
     }
-
-    // ---- empty / zero / legacy ----
 
     @Test
     void emptyDataset_returnsZerosAndZeroFilledSeries() throws Exception {
@@ -316,8 +275,6 @@ class AnalyticsDashboardTest {
         assertFalse(raw.toLowerCase().contains("razorpay"));
     }
 
-    // ---- presets (relative to today) ----
-
     @Test
     void presets_resolveAndFilter_relativeToToday() throws Exception {
         LocalDate today = LocalDate.now();
@@ -340,7 +297,6 @@ class AnalyticsDashboardTest {
         assertEquals(111.0, week.get("kpis").get("revenue").asDouble(), EPS);
         assertEquals(7, week.get("daily").size());
 
-        // default (no range) is 7d
         JsonNode dflt = ok("");
         assertEquals("7d", dflt.get("range").get("preset").asText());
         assertEquals(111.0, dflt.get("kpis").get("revenue").asDouble(), EPS);
@@ -351,22 +307,17 @@ class AnalyticsDashboardTest {
         assertEquals(30, month.get("daily").size());
     }
 
-    // ---- validation over HTTP ----
-
     @Test
     void invalidRanges_areRejectedWith400() throws Exception {
         call("range=custom", 400);
         call("range=custom&from=2026-03-10", 400);
         call("range=custom&from=2026-03-12&to=2026-03-10", 400);
-        call("range=custom&from=2025-01-01&to=2026-03-10", 400);   // > 366 days
+        call("range=custom&from=2025-01-01&to=2026-03-10", 400);
         call("range=yesterday", 400);
         call("range=7d&from=2026-03-10&to=2026-03-12", 400);
         call("range=custom&from=not-a-date&to=2026-03-12", 400);
-        // exactly 366 days is allowed
         call("range=custom&from=2025-03-12&to=2026-03-12", 200);
     }
-
-    // ---- index ----
 
     @Test
     void analyticsIndex_existsOnOrdersTable_withStatusThenCreatedAt() throws Exception {

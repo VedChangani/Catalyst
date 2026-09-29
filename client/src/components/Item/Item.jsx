@@ -6,12 +6,7 @@ import Badge from "../../ui/Badge.jsx";
 const Item = ({itemName, itemPrice, itemImage, itemId, categoryName, active, availableQuantity, lowStockThreshold}) => {
     const {addToCart, cartItems} = useContext(AppContext);
 
-    // Mirrors the backend's own rule (OrderServiceImpl.createOrder): only an explicit
-    // active === true is sellable, so a legacy item with no value yet is treated the same way
-    // the backend already treats it - as unavailable, not as "assume it's fine".
     const isInactive = active !== true;
-    // availableQuantity is display/UX information only - the backend re-checks it authoritatively
-    // at checkout. A missing value is treated as unknown/unavailable rather than assumed in stock.
     const isOutOfStock = availableQuantity == null || availableQuantity <= 0;
     const isLowStock = !isOutOfStock && lowStockThreshold != null && availableQuantity <= lowStockThreshold;
 

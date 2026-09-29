@@ -22,8 +22,6 @@ public class OrderItemEntity {
     private Long id;
     private String itemId;
     private String name;
-    // Unit-price snapshot at order time (never re-read from the catalog). Same money type/column
-    // definition as the order totals.
     @Column(precision = 19, scale = 4)
     private BigDecimal price;
     private Integer quantity;

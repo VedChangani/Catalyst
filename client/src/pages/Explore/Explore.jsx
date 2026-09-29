@@ -10,7 +10,6 @@ import {useNavigate} from "react-router-dom";
 const Explore = () => {
     const {categories, isCatalogLoading, cartItems, cartCount} = useContext(AppContext);
     const navigate = useNavigate();
-    // display-only running total; the backend prices the order at checkout
     const subtotal = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
     const [selectedCategory, setSelectedCategory] = useState("");
 

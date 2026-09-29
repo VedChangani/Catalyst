@@ -12,8 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-// ADMIN only: /admin/** is gated in SecurityConfig. There is deliberately no DELETE: cashiers are
-// deactivated, never removed, so their historical POS orders keep a valid createdBy.
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/admin/cashiers")

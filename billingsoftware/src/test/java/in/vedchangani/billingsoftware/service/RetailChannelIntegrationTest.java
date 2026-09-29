@@ -40,12 +40,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * End-to-end Batch 6 behavior (roles, sales channel, createdBy, POS customer association) against
- * the H2 "test" datasource: real SecurityConfig filter chain, real controllers/services/repositories.
- *
- * Deliberately NOT @Transactional, so the service's own transactions commit or roll back for real.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -95,8 +89,6 @@ class RetailChannelIntegrationTest {
         userRepository.deleteAll();
     }
 
-    // ---- helpers ----
-
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
@@ -108,8 +100,6 @@ class RetailChannelIntegrationTest {
                 new UsernamePasswordAuthenticationToken(user.getEmail(), null, List.of()));
     }
 
-    // The order-list reads rely on the web layer's open-in-view session for lazy collections;
-    // outside a web request, provide that session with a transaction.
     private <T> T inSession(java.util.function.Supplier<T> call) {
         return transactionTemplate.execute(status -> call.get());
     }
@@ -137,23 +127,17 @@ class RetailChannelIntegrationTest {
         return itemRepository.findByItemId(item.getItemId()).orElseThrow();
     }
 
-    // ---- roles ----
-
     @Test
     void cashierRoleIsPersistedAsIsAndRecognizedBySpringSecurity() {
         UserDetails details = appUserDetailsService.loadUserByUsername(cashier.getEmail());
         assertEquals("ROLE_CASHIER", details.getAuthorities().iterator().next().getAuthority());
         assertEquals("ROLE_CASHIER", userService.getUserRole(cashier.getEmail()));
-        // existing roles are untouched
         assertEquals("ROLE_USER", userService.getUserRole(customerA.getEmail()));
         assertEquals("ROLE_ADMIN", userService.getUserRole(admin.getEmail()));
     }
 
-    // ---- ONLINE ----
-
     @Test
     void onlineOrder_isOnlineOwnedByCaller_withNoCreator_evenWithHostileBodyFields() throws Exception {
-        // salesChannel / createdBy / userId in the body must all be ignored.
         String body = "{\"customerName\":\"" + customerB.getName() + "\",\"phoneNumber\":\"9999999999\","
                 + "\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + ","
                 + "\"salesChannel\":\"POS\",\"createdBy\":\"" + cashier.getUserId() + "\","
@@ -178,8 +162,6 @@ class RetailChannelIntegrationTest {
         assertEquals(1, orderEntityRepository.count());
     }
 
-    // ---- POS ----
-
     @Test
     void walkInPosOrder_byCashier_hasNoUserAndCreatedByCashier() throws Exception {
         String body = "{\"customerName\":\"Walk In\",\"phoneNumber\":\"9999999999\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
@@ -193,10 +175,8 @@ class RetailChannelIntegrationTest {
         assertEquals("POS", response.get("salesChannel").asText());
         assertEquals(cashier.getUserId(), response.get("createdBy").get("userId").asText());
         assertEquals(cashier.getName(), response.get("createdBy").get("name").asText());
-        // never leaks credentials/email of the creator
         assertNull(response.get("createdBy").get("email"));
         assertNull(response.get("createdBy").get("password"));
-        // shared billing logic: authoritative price/tax/total and CASH commits stock
         TestMoney.assertMoney("20.0", order.getSubtotal());
         TestMoney.assertMoney("0.2", order.getTax());
         TestMoney.assertMoney("20.2", order.getGrandTotal());
@@ -253,7 +233,6 @@ class RetailChannelIntegrationTest {
         String raw = result.getResponse().getContentAsString();
         assertFalse(raw.contains(theirs));
         assertFalse(raw.contains(online));
-        // an admin, a customer (even the one linked to the sale) and anonymous callers are refused
         mockMvc.perform(get("/pos/sales").with(user(admin.getEmail()).roles("ADMIN"))).andExpect(status().isForbidden());
         mockMvc.perform(get("/pos/sales").with(user(customerA.getEmail()).roles("USER"))).andExpect(status().isForbidden());
         mockMvc.perform(get("/pos/sales")).andExpect(status().isUnauthorized());
@@ -263,7 +242,6 @@ class RetailChannelIntegrationTest {
     void admin_stillSeesPosOrders_includingHistoricalAdminCreatedOnes_inAllOrders() throws Exception {
         String body = "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
         String cashierSale = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
-        // a POS sale an admin entered back when admins were still allowed to
         String historical = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
         OrderEntity legacy = orderEntityRepository.findByOrderId(historical).orElseThrow();
         legacy.setCreatedBy(admin);
@@ -296,7 +274,6 @@ class RetailChannelIntegrationTest {
 
         JsonNode created = postJson("/pos/orders", cashier, "CASHIER", body, 201);
 
-        // creation response, snapshot and the DB row all identify the selected customer
         assertEquals(customerA.getUserId(), created.get("customer").get("userId").asText());
         assertEquals(customerA.getName(), created.get("customerName").asText());
         assertEquals(customerA.getMobile(), created.get("phoneNumber").asText());
@@ -305,7 +282,6 @@ class RetailChannelIntegrationTest {
         assertEquals(customerA.getName(), order.getCustomerName());
         assertEquals(customerA.getMobile(), order.getPhoneNumber());
 
-        // My Sales (what the cashier screen renders) carries the same identity
         authenticateAs(cashier);
         OrderResponse sale = inSession(orderService::getMySales).stream()
                 .filter(o -> o.getOrderId().equals(order.getOrderId())).findFirst().orElseThrow();
@@ -335,9 +311,6 @@ class RetailChannelIntegrationTest {
         assertTrue(created.get("customer") == null || created.get("customer").isNull());
     }
 
-    // The two POS customer modes must stay distinguishable in the SAME My Sales list: a sale made
-    // for an explicitly selected customer identifies that customer, a genuine walk-in carries no
-    // customer at all. Neither mode may collapse into the other.
     @Test
     void mySales_distinguishesARegisteredSaleFromAGenuineWalkIn() throws Exception {
         String registered = postJson("/pos/orders", cashier, "CASHIER",
@@ -346,7 +319,6 @@ class RetailChannelIntegrationTest {
         String walkIn = postJson("/pos/orders", cashier, "CASHIER",
                 "{\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}", 201).get("orderId").asText();
 
-        // the persisted rows are what My Sales must reflect
         assertEquals(customerA.getId(), orderEntityRepository.findByOrderId(registered).orElseThrow().getUser().getId());
         assertNull(orderEntityRepository.findByOrderId(walkIn).orElseThrow().getUser());
 
@@ -400,7 +372,6 @@ class RetailChannelIntegrationTest {
 
     @Test
     void posOrder_cannotAssociateStaffAccountAsCustomer() throws Exception {
-        // A staff account's userId is not a valid *customer* selection; reported as not found.
         String body = "{\"customerUserId\":\"" + otherCashier.getUserId() + "\",\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
 
         postJson("/pos/orders", cashier, "CASHIER", body, 404);
@@ -421,7 +392,6 @@ class RetailChannelIntegrationTest {
 
     @Test
     void posOrder_matchingNameOrPhone_neverAssociatesAnAccount() throws Exception {
-        // Exactly the registered customer's name, and a phone-like value: still a walk-in.
         String body = "{\"customerName\":\"" + customerA.getName() + "\",\"phoneNumber\":\"9876543210\","
                 + "\"paymentMethod\":\"CASH\",\"cartItems\":" + cart() + "}";
 
@@ -431,8 +401,6 @@ class RetailChannelIntegrationTest {
         assertEquals(customerA.getName(), order.getCustomerName());
         assertEquals(0, orderEntityRepository.findByUser_IdOrderByCreatedAtDesc(customerA.getId()).size());
     }
-
-    // ---- service-level defence in depth ----
 
     @Test
     void createPosOrder_service_rejectsAUserRoleAccount() {
@@ -453,8 +421,6 @@ class RetailChannelIntegrationTest {
         assertThrows(ResourceNotFoundException.class, () -> orderService.createPosOrder(request));
     }
 
-    // ---- unified customer history / visibility ----
-
     @Test
     void sameCustomerAccount_hasBothOnlineAndPosOrders_withoutDuplicateAccounts() throws Exception {
         long usersBefore = userRepository.count();
@@ -470,7 +436,6 @@ class RetailChannelIntegrationTest {
         assertEquals(2, history.size());
         assertTrue(history.stream().anyMatch(o -> o.getSalesChannel() == SalesChannel.ONLINE));
         assertTrue(history.stream().anyMatch(o -> o.getSalesChannel() == SalesChannel.POS));
-        // the customer's own history never names the staff member
         assertTrue(history.stream().allMatch(o -> o.getCreatedBy() == null));
     }
 
@@ -515,8 +480,6 @@ class RetailChannelIntegrationTest {
         assertNull(all.get(0).getCreatedBy());
     }
 
-    // ---- POS payment lifecycle reuses the existing architecture ----
-
     @Test
     void posUpiOrder_reservesStock_andOnlyItsCreatorMayCancelIt() throws Exception {
         String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"UPI\",\"cartItems\":" + cart() + "}";
@@ -525,8 +488,6 @@ class RetailChannelIntegrationTest {
         assertEquals("PENDING_PAYMENT", response.get("orderStatus").asText());
         assertEquals(2, reloadItem().getReservedQuantity());
 
-        // another cashier, an unrelated customer, and even the order's own associated customer
-        // are all refused - and nothing is released
         authenticateAs(otherCashier);
         assertThrows(AccessDeniedException.class, () -> orderService.cancelOrder(orderId));
         authenticateAs(customerB);
@@ -536,7 +497,6 @@ class RetailChannelIntegrationTest {
         assertThrows(AccessDeniedException.class, () -> orderService.failPayment(orderId));
         assertEquals(2, reloadItem().getReservedQuantity());
 
-        // the creating cashier can release it
         authenticateAs(cashier);
         assertEquals(OrderStatus.CANCELLED, orderService.cancelOrder(orderId).getOrderStatus());
         assertEquals(0, reloadItem().getReservedQuantity());
@@ -559,7 +519,6 @@ class RetailChannelIntegrationTest {
     @Test
     void adminCreatedPosOrder_isManagedByThatAdminOnly() throws Exception {
         String body = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"UPI\",\"cartItems\":" + cart() + "}";
-        // historical order: entered by an admin before admins lost POS creation
         String orderId = postJson("/pos/orders", cashier, "CASHIER", body, 201).get("orderId").asText();
         OrderEntity legacy = orderEntityRepository.findByOrderId(orderId).orElseThrow();
         legacy.setCreatedBy(admin);
@@ -590,7 +549,6 @@ class RetailChannelIntegrationTest {
         String pos = "{\"customerUserId\":\"" + customerA.getUserId() + "\",\"paymentMethod\":\"UPI\",\"cartItems\":" + cart() + "}";
         String orderId = postJson("/pos/orders", cashier, "CASHIER", pos, 201).get("orderId").asText();
 
-        // Ownership is checked before any Razorpay call is made.
         authenticateAs(customerA);
         assertThrows(AccessDeniedException.class, () -> razorpayService.createOrder(orderId, "INR"));
         authenticateAs(otherCashier);
@@ -599,7 +557,6 @@ class RetailChannelIntegrationTest {
 
     @Test
     void orderResponses_neverContainTheRazorpaySignature() throws Exception {
-        // Give a UPI order a fully populated persisted PaymentDetails, signature included.
         String body = "{\"customerName\":\"A\",\"phoneNumber\":\"9999999999\",\"paymentMethod\":\"UPI\",\"cartItems\":" + cart() + "}";
         JsonNode created = postJson("/orders", customerA, "USER", body, 201);
         OrderEntity order = storedOrder(created);
@@ -635,8 +592,6 @@ class RetailChannelIntegrationTest {
         assertThrows(AccessDeniedException.class, () -> orderService.cancelOrder(orderId));
         assertEquals(2, reloadItem().getReservedQuantity());
     }
-
-    // ---- customer lookup ----
 
     @Test
     void customerLookup_returnsOnlyRegisteredCustomers_withMinimalFields() throws Exception {

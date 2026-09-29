@@ -23,7 +23,6 @@ public class ItemRequest {
 
     @NotNull(message = "Price is required")
     @Positive(message = "Price must be greater than 0")
-    // whole paise only: at most 2 decimals, so every order total is exact (see util/Money)
     @Digits(integer = 15, fraction = 2, message = "Price must have at most 2 decimal places")
     private BigDecimal price;
 
@@ -34,8 +33,6 @@ public class ItemRequest {
 
     private String sku;
 
-    // Required for new items - never silently defaulted. An admin must always state the initial
-    // stock level explicitly.
     @NotNull(message = "stockQuantity is required")
     @Min(value = 0, message = "stockQuantity must not be negative")
     private Integer stockQuantity;
@@ -43,6 +40,5 @@ public class ItemRequest {
     @Min(value = 0, message = "lowStockThreshold must not be negative")
     private Integer lowStockThreshold;
 
-    // Optional - defaults to true at the service layer when omitted.
     private Boolean active;
 }

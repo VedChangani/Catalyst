@@ -13,10 +13,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 
-/**
- * The deployed frontend origin, configured the way Railway does it (APP_CORS_ALLOWED_ORIGINS ->
- * app.cors.allowed-origins), and the real /api/v1.0 context path.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

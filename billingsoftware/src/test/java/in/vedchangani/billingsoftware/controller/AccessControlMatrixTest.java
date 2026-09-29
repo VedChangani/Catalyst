@@ -24,17 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
-/**
- * The whole role/URL rule set in one place. The other security tests each cover a feature; this one
- * walks EVERY API route as anonymous, USER, CASHIER and ADMIN through the real SecurityConfig filter
- * chain, so a change to a URL rule for any single route (or a new route that falls into the wrong
- * rule) fails here regardless of which feature owns it. It is the "direct URL/API access is
- * protected, not only the navigation" guarantee.
- *
- * Only the role gate is asserted. A permitted call is made with an empty body / unknown id so it
- * fails validation or lookup (never a 401/403) and changes no data. Ownership rules inside the
- * service layer (e.g. a customer reading someone else's order) have their own tests.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -51,32 +40,25 @@ class AccessControlMatrixTest {
         }
     }
 
-    // Source of truth: the rules in SecurityConfig, one row per route the application exposes.
     private static final List<Route> ROUTES = List.of(
-            // catalog browsing: any signed-in role
             route(HttpMethod.GET, "/items", U, C, A),
             route(HttpMethod.GET, "/categories", U, C, A),
-            // online ordering: customers only
             route(HttpMethod.POST, "/orders", U),
             route(HttpMethod.GET, "/orders/my-orders", U),
             route(HttpMethod.GET, "/orders/some-order", U, C),
             route(HttpMethod.GET, "/orders/latest", A),
-            // payment lifecycle: any signed-in role (ownership is enforced per order in the service)
             route(HttpMethod.POST, "/orders/some-order/cancel", U, C, A),
             route(HttpMethod.POST, "/orders/some-order/fail-payment", U, C, A),
             route(HttpMethod.POST, "/payments/create-order", U, C, A),
             route(HttpMethod.POST, "/payments/verify", U, C, A),
-            // POS: cashiers only - not even an admin
             route(HttpMethod.POST, "/pos/orders", C),
             route(HttpMethod.GET, "/pos/sales", C),
             route(HttpMethod.GET, "/pos/customers", C),
             route(HttpMethod.GET, "/pos/no-such-route", C),
-            // own account and own activity: any signed-in role
             route(HttpMethod.GET, "/account/me", U, C, A),
             route(HttpMethod.PATCH, "/account/me", U, C, A),
             route(HttpMethod.PATCH, "/account/me/password", U, C, A),
             route(HttpMethod.GET, "/activity/me", U, C, A),
-            // administration: admins only
             route(HttpMethod.GET, "/dashboard", A),
             route(HttpMethod.GET, "/admin/orders", A),
             route(HttpMethod.GET, "/admin/analytics", A),
@@ -91,7 +73,6 @@ class AccessControlMatrixTest {
             route(HttpMethod.DELETE, "/admin/items/some-item", A),
             route(HttpMethod.POST, "/admin/categories", A),
             route(HttpMethod.DELETE, "/admin/categories/some-category", A),
-            // a route that does not exist is still behind the /admin/** rule, so it cannot be probed
             route(HttpMethod.GET, "/admin/no-such-route", A));
 
     private static Route route(HttpMethod method, String path, String... roles) {

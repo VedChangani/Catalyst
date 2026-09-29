@@ -31,15 +31,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for createOrder's server-side pricing and validation:
- *  - subtotal/tax/grandTotal are computed from the catalog price, never from the client
- *  - a client-supplied price/tax/total is ignored entirely
- *  - quantities are multiplied per line and summed across multiple lines
- *  - an empty cart is rejected
- *  - a zero or negative quantity is rejected
- *  - a non-existent item id is rejected
- */
 @ExtendWith(MockitoExtension.class)
 class OrderPricingAndValidationTest {
 
@@ -97,13 +88,11 @@ class OrderPricingAndValidationTest {
                 .build();
     }
 
-    // These tests are about pricing, not inventory: every reservation/commit succeeds.
     private void stockAlwaysAvailable() {
         when(itemRepository.reserveStock(anyString(), anyInt())).thenReturn(1);
         when(itemRepository.commitReservedStock(anyString(), anyInt())).thenReturn(1);
     }
 
-    // ---- Server computes subtotal/tax/grandTotal from the catalog price, ignoring the client ----
     @Test
     void createOrder_computesTotalsFromCatalogPrice_ignoringClientValues() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -121,7 +110,6 @@ class OrderPricingAndValidationTest {
 
         OrderResponse result = orderService.createOrder(request);
 
-        // subtotal = 100 * 2 = 200, tax = 1% of 200 = 2, grandTotal = 202
         TestMoney.assertMoney("200.0", result.getSubtotal());
         TestMoney.assertMoney("2.0", result.getTax());
         TestMoney.assertMoney("202.0", result.getGrandTotal());
@@ -135,7 +123,6 @@ class OrderPricingAndValidationTest {
         TestMoney.assertMoney("202.0", captor.getValue().getGrandTotal());
     }
 
-    // ---- Multiple lines are summed correctly ----
     @Test
     void createOrder_sumsMultipleLineItems() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -156,19 +143,13 @@ class OrderPricingAndValidationTest {
 
         OrderResponse result = orderService.createOrder(request);
 
-        // subtotal = (100*1) + (50*3) = 250, tax = 2.5, grandTotal = 252.5
         TestMoney.assertMoney("250.0", result.getSubtotal());
         TestMoney.assertMoney("2.5", result.getTax());
         TestMoney.assertMoney("252.5", result.getGrandTotal());
     }
 
-    // ---- Client-supplied price/tax/total on the request are ignored (request has no such fields) ----
     @Test
     void createOrder_ignoresAnyClientSuppliedPricing() {
-        // OrderRequest.OrderItemRequest only exposes itemId + quantity, so there is no
-        // price/tax/total field a client could tamper with in the first place. This test
-        // documents that guarantee by asserting totals always come from the catalog price
-        // even when a very "suspicious" quantity/item combination is used.
         UserEntity alice = aUser(1L, "alice@example.com");
         authenticateAs("alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
@@ -185,13 +166,10 @@ class OrderPricingAndValidationTest {
         OrderResponse result = orderService.createOrder(request);
 
         TestMoney.assertMoney("9.99", result.getSubtotal());
-        // 1% of 9.99 is 0.0999; money is kept in whole paise, so tax is rounded HALF_UP to 0.10
-        // (previously a double 0.0999 was stored while 0.10 was displayed and charged).
         TestMoney.assertMoney("0.10", result.getTax());
         TestMoney.assertMoney("10.09", result.getGrandTotal());
     }
 
-    // ---- Empty cart is rejected ----
     @Test
     void createOrder_rejectsEmptyCart() {
         authenticateAs("alice@example.com");
@@ -205,7 +183,6 @@ class OrderPricingAndValidationTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Null cart is rejected ----
     @Test
     void createOrder_rejectsNullCart() {
         authenticateAs("alice@example.com");
@@ -219,7 +196,6 @@ class OrderPricingAndValidationTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Zero quantity is rejected ----
     @Test
     void createOrder_rejectsZeroQuantity() {
         authenticateAs("alice@example.com");
@@ -233,7 +209,6 @@ class OrderPricingAndValidationTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Negative quantity is rejected ----
     @Test
     void createOrder_rejectsNegativeQuantity() {
         authenticateAs("alice@example.com");
@@ -247,7 +222,6 @@ class OrderPricingAndValidationTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Non-existent item id is rejected ----
     @Test
     void createOrder_rejectsNonExistentItem() {
         authenticateAs("alice@example.com");

@@ -1,5 +1,3 @@
-// Display and request helpers for the Activity page. Pure functions, so they can be unit-tested.
-
 export const AUDIT_ACTIONS = [
     "AUTH_LOGIN_SUCCESS", "ACCOUNT_REGISTERED", "PROFILE_UPDATED", "PASSWORD_CHANGED",
     "CASHIER_CREATED", "CASHIER_DEACTIVATED", "CASHIER_REACTIVATED", "CASHIER_PASSWORD_RESET",
@@ -66,15 +64,11 @@ const humanizeValue = (value) => {
     return String(value);
 };
 
-// {changedFields: ["name","email"], delta: -2} -> ["Changed Fields: name, email", "Delta: -2"]
 export const formatDetails = (details) => {
     if (!details || typeof details !== "object") return [];
     return Object.entries(details).map(([key, value]) => `${humanizeKey(key)}: ${humanizeValue(value)}`);
 };
 
-// Query parameters for a request. The personal log sends paging ONLY - its owner is the
-// authenticated user, decided by the backend, so no user/actor id is ever included for it.
-// Admin filters are forwarded only in system mode, and empty values are dropped.
 export const buildActivityParams = ({system, page, filters = {}}) => {
     const params = {};
     if (page > 0) params.page = page;

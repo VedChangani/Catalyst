@@ -31,11 +31,6 @@ test("UPI is shown first via the documented display config, with the other metho
     assert.equal(display.preferences.show_default_blocks, true);
 });
 
-// Checkout renders only the methods the Razorpay ACCOUNT has enabled; these options must never be
-// what removes one. Two things matter here:
-//  - no display.hide, so nothing the account offers is suppressed;
-//  - the UPI instrument declares no `flows`, which would RESTRICT it to those listed. Leaving it
-//    open is what lets desktop Checkout offer Razorpay's own UPI QR alongside collect/intent.
 test("the options hide no payment method and do not restrict the UPI flows", () => {
     const {display} = buildCheckoutOptions({razorpayOrder: serverOrder, handler: () => {}, onDismiss: () => {}}).config;
     assert.equal(display.hide, undefined);

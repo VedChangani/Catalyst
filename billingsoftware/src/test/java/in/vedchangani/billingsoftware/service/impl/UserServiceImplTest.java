@@ -22,10 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for UserServiceImpl account creation: registering an email that is already taken is a
- * business conflict (409), not an unhandled 500 or a silently-created duplicate account.
- */
 @ExtendWith(MockitoExtension.class)
 class UserServiceImplTest {
 
@@ -127,7 +123,6 @@ class UserServiceImplTest {
 
         assertEquals("alice@example.com", userService.resolveLoginEmail(" Alice@Example.com "));
         assertEquals("alice@example.com", userService.resolveLoginEmail("098765-43210"));
-        // a name (or anything that is neither an email nor a valid mobile) never resolves
         assertNull(userService.resolveLoginEmail("Alice"));
         assertNull(userService.resolveLoginEmail(" "));
     }

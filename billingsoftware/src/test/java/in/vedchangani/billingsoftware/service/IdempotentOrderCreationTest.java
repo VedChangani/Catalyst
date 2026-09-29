@@ -44,14 +44,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-/**
- * Day 4 / Batch 13: Idempotency-Key on POST /orders and POST /pos/orders, through the real
- * security chain, controllers, services and the H2 "test" database. Deliberately NOT
- * @Transactional: the service transactions must commit / roll back for real.
- *
- * H2 does not reproduce MySQL/InnoDB locking, so the concurrency test proves the invariants
- * (one order, one stock movement) on H2 only; it does not prove InnoDB's exact interleaving.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -98,8 +90,6 @@ class IdempotentOrderCreationTest {
         categoryRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
@@ -171,8 +161,6 @@ class IdempotentOrderCreationTest {
         return orderEntityRepository.findByOrderId(orderId).orElseThrow();
     }
 
-    // ---- same key, same request ----
-
     @Test
     void online_sameKeySameRequest_returnsTheSameOrderWith200_andReservesOnce() throws Exception {
         String key = key();
@@ -186,7 +174,7 @@ class IdempotentOrderCreationTest {
         assertEquals("PENDING_PAYMENT", json(second).get("orderStatus").asText());
         assertEquals("ONLINE", json(second).get("salesChannel").asText());
         assertEquals(1, orderEntityRepository.count());
-        assertStock(100, 2); // reserved once, not twice
+        assertStock(100, 2);
     }
 
     @Test
@@ -242,7 +230,6 @@ class IdempotentOrderCreationTest {
         String one = "{\"customerName\":\"Aaron\",\"phoneNumber\":\"9999999999\",\"paymentMethod\":\"CASH\",\"cartItems\":["
                 + "{\"itemId\":\"" + item.getItemId() + "\",\"quantity\":1},"
                 + "{\"itemId\":\"" + otherItem.getItemId() + "\",\"quantity\":3}]}";
-        // same logical cart: lines reordered, first item's quantity split across two lines
         String same = "{\"phoneNumber\":\"9999999999\",\"customerName\":\"Aaron\",\"paymentMethod\":\"CASH\",\"cartItems\":["
                 + "{\"itemId\":\"" + otherItem.getItemId() + "\",\"quantity\":3},"
                 + "{\"itemId\":\"" + item.getItemId() + "\",\"quantity\":1}]}";
@@ -251,8 +238,6 @@ class IdempotentOrderCreationTest {
         assertEquals(200, online(customerA, same, key).getResponse().getStatus());
         assertEquals(1, orderEntityRepository.count());
     }
-
-    // ---- same key, different request ----
 
     @Test
     void sameKey_differentQuantity_isConflict_andNothingChanges() throws Exception {
@@ -273,8 +258,6 @@ class IdempotentOrderCreationTest {
         assertEquals(201, online(customerA, onlineBody("UPI", 2), key).getResponse().getStatus());
 
         assertEquals(409, online(customerA, onlineBody("CASH", 2), key).getResponse().getStatus());
-        // identity fields are not part of the ONLINE request any more: they are ignored, so the same
-        // logical request with a different name/phone is a plain replay, not a different request
         assertEquals(200, online(customerA,
                 onlineBody("UPI", 2).replaceFirst("\\{", "{\"customerName\":\"Someone Else\",\"phoneNumber\":\"8888888888\","), key)
                 .getResponse().getStatus());
@@ -290,7 +273,6 @@ class IdempotentOrderCreationTest {
         String key = key();
         assertEquals(201, pos(cashier, "CASHIER", posBody("UPI", 1, customerA.getUserId()), key).getResponse().getStatus());
 
-        // another registered customer, and a walk-in, are both materially different requests
         assertEquals(409, pos(cashier, "CASHIER", posBody("UPI", 1, customerB.getUserId()), key).getResponse().getStatus());
         assertEquals(409, pos(cashier, "CASHIER", posBody("UPI", 1, null), key).getResponse().getStatus());
 
@@ -309,8 +291,6 @@ class IdempotentOrderCreationTest {
         assertNull(orderEntityRepository.findAll().get(0).getUser());
     }
 
-    // ---- same key, different actor / channel ----
-
     @Test
     void online_sameKey_differentCustomer_isConflict() throws Exception {
         String key = key();
@@ -319,7 +299,7 @@ class IdempotentOrderCreationTest {
         MvcResult other = online(customerB, onlineBody("UPI", 2), key);
 
         assertEquals(409, other.getResponse().getStatus());
-        assertFalse(other.getResponse().getContentAsString().contains(orderId)); // nothing leaked
+        assertFalse(other.getResponse().getContentAsString().contains(orderId));
         assertEquals(1, orderEntityRepository.count());
         assertStock(100, 2);
     }
@@ -333,7 +313,7 @@ class IdempotentOrderCreationTest {
         MvcResult byAdmin = pos(admin, "ADMIN", posBody("CASH", 1, null), key);
 
         assertEquals(409, byOtherCashier.getResponse().getStatus());
-        assertEquals(403, byAdmin.getResponse().getStatus()); // an admin cannot create POS sales at all
+        assertEquals(403, byAdmin.getResponse().getStatus());
         assertFalse(byOtherCashier.getResponse().getContentAsString().contains(orderId));
         assertEquals(1, orderEntityRepository.count());
         assertStock(99, 0);
@@ -348,8 +328,6 @@ class IdempotentOrderCreationTest {
 
         assertEquals(1, orderEntityRepository.count());
     }
-
-    // ---- different keys / no key ----
 
     @Test
     void differentKeys_createTwoOrders() throws Exception {
@@ -380,8 +358,6 @@ class IdempotentOrderCreationTest {
         });
     }
 
-    // ---- key validation ----
-
     @Test
     void invalidKeys_areRejectedBeforeAnythingIsCreated() throws Exception {
         for (String bad : new String[]{"a".repeat(65), "", " ", "has space", "semi;colon", "quote\"d", "ключ"}) {
@@ -390,11 +366,8 @@ class IdempotentOrderCreationTest {
         assertEquals(0, orderEntityRepository.count());
         assertStock(100, 0);
 
-        // the longest allowed key works
         assertEquals(201, online(customerA, onlineBody("CASH", 1), "k".repeat(64)).getResponse().getStatus());
     }
-
-    // ---- replay after the order changed state ----
 
     @Test
     void replay_afterCancel_returnsTheCancelledOrder_withoutReservingAgain() throws Exception {
@@ -411,7 +384,7 @@ class IdempotentOrderCreationTest {
         assertEquals(orderId, json(replay).get("orderId").asText());
         assertEquals("CANCELLED", json(replay).get("orderStatus").asText());
         assertEquals(1, orderEntityRepository.count());
-        assertStock(100, 0); // still nothing reserved: the replay did not restart anything
+        assertStock(100, 0);
     }
 
     @Test
@@ -468,24 +441,19 @@ class IdempotentOrderCreationTest {
         assertEquals(orderId, json(replay).get("orderId").asText());
     }
 
-    // ---- failed attempts leave no key behind ----
-
     @Test
     void failedCreate_doesNotConsumeTheKey_soTheSameKeyCanBeRetried() throws Exception {
         String key = key();
         String tooMany = onlineBody("CASH", 1000);
 
-        assertEquals(409, online(customerA, tooMany, key).getResponse().getStatus()); // insufficient stock
+        assertEquals(409, online(customerA, tooMany, key).getResponse().getStatus());
         assertEquals(0, orderEntityRepository.count());
         assertStock(100, 0);
 
-        // e.g. the customer lowers the quantity and retries with the same key
         assertEquals(201, online(customerA, onlineBody("CASH", 3), key).getResponse().getStatus());
         assertEquals(1, orderEntityRepository.count());
         assertStock(97, 0);
     }
-
-    // ---- response secrecy ----
 
     @Test
     void responses_neverExposeTheKeyOrFingerprint() throws Exception {
@@ -504,8 +472,6 @@ class IdempotentOrderCreationTest {
         assertEquals(key, orderEntityRepository.findAll().get(0).getIdempotencyKey());
     }
 
-    // ---- database uniqueness ----
-
     @Test
     void database_rejectsTwoOrdersWithTheSameIdempotencyKey_butAllowsManyNulls() {
         orderEntityRepository.saveAndFlush(bareOrder("dup-key"));
@@ -518,8 +484,6 @@ class IdempotentOrderCreationTest {
         assertEquals(3, orderEntityRepository.count());
     }
 
-    // ---- CORS: the browser must be allowed to send the header ----
-
     @Test
     void corsPreflight_allowsTheIdempotencyKeyHeader() throws Exception {
         MvcResult preflight = mockMvc.perform(options("/orders")
@@ -531,8 +495,6 @@ class IdempotentOrderCreationTest {
         assertEquals(200, preflight.getResponse().getStatus());
         assertTrue(preflight.getResponse().getHeader("Access-Control-Allow-Headers").toLowerCase().contains("idempotency-key"));
     }
-
-    // ---- concurrency ----
 
     @Test
     void concurrentIdenticalRequests_createOneOrder_andMoveStockOnce() throws Exception {
@@ -557,14 +519,11 @@ class IdempotentOrderCreationTest {
         }
         pool.shutdown();
 
-        // the invariants that matter, whatever the interleaving: one order, one stock movement
         assertEquals(1, orderEntityRepository.count(), "statuses: " + statuses);
         assertStock(98, 0);
         assertEquals(1, statuses.stream().filter(status -> status == 201).count(), "statuses: " + statuses);
         assertTrue(statuses.stream().allMatch(status -> status == 201 || status == 200), "statuses: " + statuses);
     }
-
-    // ---- fixtures ----
 
     private OrderEntity bareOrder(String idempotencyKey) {
         return OrderEntity.builder()

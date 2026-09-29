@@ -40,8 +40,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ItemServiceImpl implements ItemService {
 
-    // Applied when ItemRequest/ItemUpdateRequest omit lowStockThreshold - a sensible admin
-    // default, not a business-critical constant, so it's kept local rather than configurable.
     private static final int DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
     private final FileUploadService fileUploadService;
@@ -49,19 +47,15 @@ public class ItemServiceImpl implements ItemService {
     private final ItemRepository itemRepository;
     private final AuditService auditService;
 
-    // Public base URL of /uploads/** (configuration, not code - see application.properties).
     @Value("${app.uploads.public-base-url}")
     private String uploadsPublicBaseUrl;
 
     @Value("${app.uploads.dir}")
     private String uploadsDir;
 
-    // Every mutation below is one transaction with its audit event, so a failed change leaves no
-    // "succeeded" record behind.
     @Override
     @Transactional
     public ItemResponse add(ItemRequest request, MultipartFile file) throws IOException {
-        //String imgUrl = fileUploadService.uploadFile(file);
         String fileName = UUID.randomUUID().toString()+"."+ StringUtils.getFilenameExtension(file.getOriginalFilename());
         Path uploadPath = UploadUrls.directory(uploadsDir);
         Files.createDirectories(uploadPath);
@@ -112,9 +106,7 @@ public class ItemServiceImpl implements ItemService {
                 .description(request.getDescription())
                 .price(request.getPrice())
                 .sku(request.getSku())
-                // stockQuantity is required on ItemRequest and is never defaulted.
                 .stockQuantity(request.getStockQuantity())
-                // Never client-supplied - every new item starts with nothing reserved.
                 .reservedQuantity(0)
                 .lowStockThreshold(request.getLowStockThreshold() != null
                         ? request.getLowStockThreshold()
@@ -137,29 +129,19 @@ public class ItemServiceImpl implements ItemService {
         ItemEntity existingItem = itemRepository.findByItemId(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Item not found: "+itemId));
 
-        // A PENDING_PAYMENT order may hold a reservation against this item; deleting it here
-        // would leave that order with no ItemEntity left to commit/release the reservation
-        // against later. active=false is the correct "stop selling" lever instead.
         if (existingItem.getReservedQuantity() != null && existingItem.getReservedQuantity() > 0) {
             throw new ConflictException("Cannot delete item " + itemId + ": it has " +
                     existingItem.getReservedQuantity() + " unit(s) reserved by in-progress orders");
         }
 
-        // The row is deleted FIRST, by a statement that reports how many rows it removed. (Not
-        // itemRepository.delete(entity): for an item whose @Version is NULL - every item created
-        // before inventory tracking - Spring Data treats the entity as new and skips the delete
-        // without any SQL, while this method went on to answer 204.) A count of 0 is never a success.
         int deleted = itemRepository.deleteUnreservedById(existingItem.getId());
         if (deleted != 1) {
-            // Not there any more, or a reservation appeared since the check above.
             throw new ConflictException("Item " + itemId + " could not be deleted: it was changed or reserved by an "
                     + "in-progress order. Refresh and try again.");
         }
         auditService.record(AuditAction.ITEM_DELETED, AuditTargetType.ITEM, itemId,
                 Map.of("name", existingItem.getName()));
 
-        // Only once the row is gone: remove the image file. If that fails the exception rolls the
-        // deletion back, so the item and its image are never left half-removed.
         String imgUrl = existingItem.getImgUrl();
         if (imgUrl != null && !imgUrl.isBlank()) {
             String fileName = imgUrl.substring(imgUrl.lastIndexOf("/") + 1);
@@ -201,11 +183,8 @@ public class ItemServiceImpl implements ItemService {
         if (request.getActive() != null) {
             existingItem.setActive(request.getActive());
         }
-        // stockQuantity/reservedQuantity are intentionally never touched here - ItemUpdateRequest
-        // has no such fields; stock only changes through adjustStock's atomic query.
 
         ItemEntity saved = itemRepository.save(existingItem);
-        // which fields the admin submitted - names only
         List<String> fields = new ArrayList<>();
         if (request.getName() != null) fields.add("name");
         if (request.getPrice() != null) fields.add("price");
@@ -221,12 +200,9 @@ public class ItemServiceImpl implements ItemService {
     @Override
     @Transactional
     public ItemResponse adjustStock(String itemId, StockAdjustmentRequest request) {
-        // Confirmed to exist first so a missing item reports 404, not the 409 used for a
-        // rejected-but-existing adjustment.
         itemRepository.findByItemId(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Item not found: "+itemId));
 
-        // Atomic conditional UPDATE - never load stockQuantity into Java, mutate it, and save.
         int updated = itemRepository.adjustStockQuantity(itemId, request.getDelta());
         if (updated == 0) {
             throw new ConflictException("Cannot adjust stock for item " + itemId +
@@ -235,7 +211,6 @@ public class ItemServiceImpl implements ItemService {
 
         ItemEntity reloaded = itemRepository.findByItemId(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Item not found: "+itemId));
-        // only reached when the guarded UPDATE actually changed the row
         auditService.record(AuditAction.INVENTORY_ADJUSTED, AuditTargetType.ITEM, itemId,
                 Map.of("delta", request.getDelta(), "stockQuantity", reloaded.getStockQuantity()));
         return convertToResponse(reloaded);

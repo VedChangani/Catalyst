@@ -27,16 +27,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Customer self-registration (POST /register) and email-or-mobile login (POST /login) through the
- * real SecurityConfig filter chain, controllers, services, BCrypt encoder, JWT and H2 repository.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class CustomerRegistrationAndLoginTest {
 
-    private static final String PASSWORD = "Secret123";
+    private static final String PASSWORD = "Secret123!";
     private static final String GENERIC_LOGIN_ERROR = "Email/mobile or password is incorrect";
 
     @Autowired private MockMvc mockMvc;
@@ -52,7 +48,6 @@ class CustomerRegistrationAndLoginTest {
         suffix = UUID.randomUUID().toString().substring(0, 8);
     }
 
-    // Unique valid Indian mobile per call, so tests sharing the H2 database never collide.
     private static String newMobile() {
         return "9" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
     }
@@ -87,13 +82,10 @@ class CustomerRegistrationAndLoginTest {
     }
 
     private UserEntity seedLegacyAccount(String email, String role) {
-        // Accounts that existed before A1: no mobile, provisioned directly with a BCrypt hash.
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).name("Legacy " + role)
                 .password(passwordEncoder.encode(PASSWORD)).role(role).build());
     }
-
-    // ---- Registration ----
 
     @Test
     void anonymousRegistration_createsCustomerWithHashedPassword() throws Exception {
@@ -157,8 +149,7 @@ class CustomerRegistrationAndLoginTest {
         String email = email("dup");
         UserEntity existing = seedLegacyAccount(email, "ROLE_CASHIER");
 
-        // Same email in a different case/spacing is still the same account.
-        MvcResult result = register(registrationBody("Imposter", " " + email.toUpperCase() + " ", newMobile(), "Other123", null));
+        MvcResult result = register(registrationBody("Imposter", " " + email.toUpperCase() + " ", newMobile(), "Other123!", null));
 
         assertEquals(409, result.getResponse().getStatus());
         assertEquals("An account with this email already exists", json(result).get("message").asText());
@@ -210,6 +201,15 @@ class CustomerRegistrationAndLoginTest {
         assertEquals(400, register(registrationBody("N", email("w1"), newMobile(), "short1", null)).getResponse().getStatus());
         assertEquals(400, register(registrationBody("N", email("w2"), newMobile(), "onlyletters", null)).getResponse().getStatus());
         assertEquals(400, register(registrationBody("N", email("w3"), newMobile(), "12345678", null)).getResponse().getStatus());
+        int n = 4;
+        for (String weak : new String[]{"password123", "Password123", "Password!", "12345678!", "Aa1!aaa", "aA1!" + "x".repeat(69)}) {
+            assertEquals(400, register(registrationBody("N", email("w" + n++), newMobile(), weak, null)).getResponse().getStatus(), weak);
+        }
+    }
+
+    @Test
+    void strongPassword_isAccepted() throws Exception {
+        assertEquals(201, register(registrationBody("N", email("strong"), newMobile(), "CatalystTest123!", null)).getResponse().getStatus());
     }
 
     @Test
@@ -227,9 +227,7 @@ class CustomerRegistrationAndLoginTest {
 
         assertEquals(201, result.getResponse().getStatus());
         assertEquals("ROLE_USER", userRepository.findByEmail(newEmail).orElseThrow().getRole());
-        // the caller's own account is unchanged
         assertEquals("ROLE_USER", userRepository.findByEmail(userEmail).orElseThrow().getRole());
-        // and the caller still cannot reach staff/admin endpoints
         mockMvc.perform(get("/admin/cashiers").header("Authorization", "Bearer " + token)).andExpect(status().isForbidden());
     }
 
@@ -240,8 +238,6 @@ class CustomerRegistrationAndLoginTest {
                 .andExpect(status().isUnauthorized());
         assertTrue(userRepository.findByEmail(email("anon-admin")).isEmpty());
     }
-
-    // ---- Login ----
 
     @Test
     void registeredCustomer_canLogInByEmail_andByMobile() throws Exception {
@@ -259,7 +255,6 @@ class CustomerRegistrationAndLoginTest {
             assertEquals(200, byMobile.getResponse().getStatus(), "mobile " + typed);
             JsonNode body = json(byMobile);
             assertEquals("ROLE_USER", body.get("role").asText());
-            // The JWT subject is still the account email - the established username.
             assertEquals(email, jwtUtil.extractUsername(body.get("token").asText()));
         }
     }
@@ -333,16 +328,13 @@ class CustomerRegistrationAndLoginTest {
         String adminToken = json(login(adminEmail, PASSWORD)).get("token").asText();
         String cashierToken = json(login(cashierEmail, PASSWORD)).get("token").asText();
 
-        // ROLE_USER: own-history endpoint yes, admin/POS no
         mockMvc.perform(get("/orders/my-orders").header("Authorization", "Bearer " + customerToken)).andExpect(status().isOk());
         mockMvc.perform(get("/admin/cashiers").header("Authorization", "Bearer " + customerToken)).andExpect(status().isForbidden());
         mockMvc.perform(get("/pos/customers").param("search", "ab").header("Authorization", "Bearer " + customerToken))
                 .andExpect(status().isForbidden());
-        // ROLE_CASHIER: POS yes, admin no
         mockMvc.perform(get("/pos/customers").param("search", "ab").header("Authorization", "Bearer " + cashierToken))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/admin/cashiers").header("Authorization", "Bearer " + cashierToken)).andExpect(status().isForbidden());
-        // ROLE_ADMIN: admin yes
         mockMvc.perform(get("/admin/cashiers").header("Authorization", "Bearer " + adminToken)).andExpect(status().isOk());
     }
 

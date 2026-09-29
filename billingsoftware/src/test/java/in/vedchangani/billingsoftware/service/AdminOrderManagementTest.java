@@ -31,19 +31,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Batch 8: GET /admin/orders (filter / search / sort / paginate) through the real security chain
- * and real H2 persistence. Fixed dataset (created dates are fixed so date filters are exact):
- *
- *   #  channel  customer  createdBy  name             phone       total  status           method  pay-status  createdAt
- *   1  ONLINE   A         -          Aaron Customer   9000000001   100   PAID             CASH    COMPLETED   2026-01-10 10:00
- *   2  ONLINE   B         -          Bella Customer   9000000002   250   PENDING_PAYMENT  UPI     PENDING     2026-01-12 12:00
- *   3  POS      A         cashier    Aaron Customer   9000000001   500   PAID             UPI     COMPLETED   2026-01-15 23:59
- *   4  POS      walk-in   cashier    Walk Ina         9000000003    50   PAID             CASH    COMPLETED   2026-01-20 00:00
- *   5  POS      walk-in   admin      Walker           9000000004  1000   CANCELLED        UPI     FAILED      2026-01-25 09:00
- *   6  ONLINE   B         -          Bella Customer   9000000002    75   PAYMENT_FAILED   UPI     FAILED      2026-02-01 09:00
- *   7  legacy   A         -          Legacy Person    9000000005    10   PAID             CASH    COMPLETED   2025-12-31 09:00
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -93,8 +80,6 @@ class AdminOrderManagementTest {
         orderEntityRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
@@ -156,8 +141,6 @@ class AdminOrderManagementTest {
         return fail("order " + n + " not in page");
     }
 
-    // ---- authorization ----
-
     @Test
     void admin_isAllowed() throws Exception {
         assertEquals(7, ok("").get("totalElements").asInt());
@@ -171,8 +154,6 @@ class AdminOrderManagementTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/admin/orders")).andExpect(status().isUnauthorized());
     }
-
-    // ---- pagination & sorting ----
 
     @Test
     void defaultPage_isFirstPageOfTwentyNewestFirst_withMetadata() throws Exception {
@@ -232,7 +213,6 @@ class AdminOrderManagementTest {
         assertEquals(List.of(id(5), id(3), id(2), id(1), id(6), id(4), id(7)), ids(ok("sort=grandTotal,desc")));
         assertEquals(List.of(id(7), id(4), id(6), id(1), id(2), id(3), id(5)), ids(ok("sort=grandTotal,asc")));
         assertEquals(List.of(id(7), id(6), id(5), id(4), id(3), id(2), id(1)), ids(ok("sort=orderId,desc")));
-        // direction defaults to DESC when omitted
         assertEquals(List.of(id(5), id(3), id(2), id(1), id(6), id(4), id(7)), ids(ok("sort=grandTotal")));
     }
 
@@ -246,8 +226,6 @@ class AdminOrderManagementTest {
         call("sort=createdAt,asc,extra", 400);
         call("sort=grandTotal;drop%20table%20tbl_orders", 400);
     }
-
-    // ---- search ----
 
     @Test
     void search_byOrderId_customerName_andPhone() throws Exception {
@@ -280,8 +258,6 @@ class AdminOrderManagementTest {
         call("search=" + "x".repeat(101), 400);
     }
 
-    // ---- status / payment / channel ----
-
     @Test
     void orderStatusFilter_worksForEveryStatus_andInvalidIs400() throws Exception {
         assertIds(ok("orderStatus=PAID"), 1, 3, 4, 7);
@@ -309,13 +285,10 @@ class AdminOrderManagementTest {
         call("salesChannel=STORE", 400);
     }
 
-    // ---- customer / staff ----
-
     @Test
     void customerUserId_filtersByRegisteredCustomer_notByCreator() throws Exception {
         assertIds(ok("customerUserId=" + customerA.getUserId()), 1, 3, 7);
         assertIds(ok("customerUserId=" + customerB.getUserId()), 2, 6);
-        // staff accounts are not customers of anything
         assertIds(ok("customerUserId=" + cashier.getUserId()));
     }
 
@@ -328,14 +301,10 @@ class AdminOrderManagementTest {
 
     @Test
     void walkInPosOrders_haveNoCustomer_andOnlineOrdersHaveNoCreator() throws Exception {
-        // Walk-in orders never match a customer filter, even one that shares their creator...
         assertIds(ok("salesChannel=POS&customerUserId=" + customerA.getUserId()), 3);
-        // ...and ONLINE orders never match a creator filter.
         assertIds(ok("salesChannel=ONLINE&createdByUserId=" + cashier.getUserId()));
         assertIds(ok("salesChannel=ONLINE&createdByUserId=" + admin.getUserId()));
     }
-
-    // ---- dates ----
 
     @Test
     void dateFrom_isInclusive() throws Exception {
@@ -345,7 +314,6 @@ class AdminOrderManagementTest {
 
     @Test
     void dateTo_includesTheWholeDay() throws Exception {
-        // order 3 was created at 23:59 on the 15th
         assertIds(ok("dateTo=2026-01-15"), 1, 2, 3, 7);
         assertIds(ok("dateTo=2026-01-14"), 1, 2, 7);
     }
@@ -364,8 +332,6 @@ class AdminOrderManagementTest {
         call("dateFrom=2026-02-30", 400);
     }
 
-    // ---- amounts ----
-
     @Test
     void amountRange_filtersOnPersistedGrandTotal() throws Exception {
         assertIds(ok("minAmount=100"), 1, 2, 3, 5);
@@ -383,8 +349,6 @@ class AdminOrderManagementTest {
         call("minAmount=NaN", 400);
         call("maxAmount=Infinity", 400);
     }
-
-    // ---- combined ----
 
     @Test
     void filters_combineWithAnd() throws Exception {
@@ -418,15 +382,12 @@ class AdminOrderManagementTest {
 
     @Test
     void joinedFilters_doNotDuplicateRowsOrDistortCounts() throws Exception {
-        // customer + creator joins are active; each order must still appear exactly once.
         JsonNode page = ok("customerUserId=" + customerA.getUserId() + "&size=2&page=0&sort=createdAt,asc");
 
         assertEquals(3, page.get("totalElements").asInt());
         assertEquals(2, page.get("totalPages").asInt());
         assertEquals(List.of(id(7), id(1)), ids(page));
     }
-
-    // ---- response content & security ----
 
     @Test
     void response_neverContainsSignatureSecretsOrCredentials() throws Exception {
@@ -439,10 +400,8 @@ class AdminOrderManagementTest {
         assertFalse(lower.contains("not-used"), raw);
         assertFalse(lower.contains("jwt"), raw);
         assertFalse(lower.contains("secret"), raw);
-        // no item lines and no payment identifiers in the list rows
         assertFalse(lower.contains("\"items\""), raw);
         assertFalse(raw.contains("pay_pub"), raw);
-        // staff accounts expose only id + name
         assertFalse(raw.contains(cashier.getEmail()), raw);
         assertFalse(raw.contains(admin.getEmail()), raw);
     }
@@ -471,7 +430,6 @@ class AdminOrderManagementTest {
         JsonNode adminPos = row(page, 5);
         assertEquals(admin.getUserId(), adminPos.get("createdBy").get("userId").asText());
 
-        // legacy order: channel and creator unknown, customer still known
         JsonNode legacy = row(page, 7);
         assertTrue(legacy.get("salesChannel").isNull());
         assertTrue(legacy.get("createdBy").isNull());
@@ -492,8 +450,6 @@ class AdminOrderManagementTest {
         OrderEntity stored = orderEntityRepository.findByOrderId(id(3)).orElseThrow();
         TestMoney.assertMoney("500.0", stored.getGrandTotal());
     }
-
-    // ---- compatibility ----
 
     @Test
     void existingLatestEndpoint_isUnchanged() throws Exception {

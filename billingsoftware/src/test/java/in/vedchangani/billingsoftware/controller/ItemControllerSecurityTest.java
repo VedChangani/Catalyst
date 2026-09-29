@@ -22,12 +22,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Exercises the real SecurityConfig filter chain (not a mocked security context) to confirm the
- * new admin-only inventory endpoints are actually gated by ROLE_ADMIN, the same way every other
- * /admin/** endpoint already is - no new SecurityConfig matcher was needed for this batch, and
- * this test is what confirms that's actually true rather than assumed.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

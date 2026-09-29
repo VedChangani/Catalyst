@@ -50,21 +50,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-/**
- * A7: the persistent activity/audit log - what gets recorded (and what does not), who can read
- * what, and that records are write-once - through the real security chain, JWT filter, controllers,
- * services and the H2 database. Deliberately NOT @Transactional: every business transaction really
- * commits or rolls back, which is exactly what the audit semantics depend on.
- *
- * The audit table is shared with every other test class in the same Spring context, so every
- * assertion is scoped to this test's own freshly created actors.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class ActivityLogTest {
 
-    private static final String PASSWORD = "Secret123";
+    private static final String PASSWORD = "Secret123!";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
@@ -107,14 +98,11 @@ class ActivityLogTest {
 
     @AfterEach
     void tearDown() {
-        // audit rows are write-once by design and have no FK to users, so they are left in place
         orderEntityRepository.deleteAll();
         itemRepository.deleteAll();
         categoryRepository.deleteAll();
         userRepository.deleteAll();
     }
-
-    // ---- helpers ----
 
     private UserEntity account(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
@@ -153,7 +141,6 @@ class ActivityLogTest {
         return body(result).get("token").asText();
     }
 
-    // Every event of one actor, newest first, read through the ADMIN system-activity API.
     private List<JsonNode> eventsOf(UserEntity actor) throws Exception {
         return systemActivity("actorUserId=" + actor.getUserId() + "&size=100");
     }
@@ -214,19 +201,15 @@ class ActivityLogTest {
                 + "\",\"razorpayPaymentId\":\"" + paymentId + "\",\"razorpaySignature\":\"" + signature + "\"}";
     }
 
-    // =====================================================================================
-    // Visibility
-    // =====================================================================================
-
     @Test
     void customerAndCashier_readOnlyTheirOwnActivity_throughTheRealJwtFlow() throws Exception {
-        String customerToken = login(customerA, PASSWORD);   // AUTH_LOGIN_SUCCESS (customer A)
-        login(customerB, PASSWORD);                          // AUTH_LOGIN_SUCCESS (customer B)
-        String cashierToken = login(cashierA, PASSWORD);     // AUTH_LOGIN_SUCCESS (cashier A)
+        String customerToken = login(customerA, PASSWORD);
+        login(customerB, PASSWORD);
+        String cashierToken = login(cashierA, PASSWORD);
         login(cashierB, PASSWORD);
         onlineOrder(customerA, "CASH", 1);
         onlineOrder(customerB, "CASH", 1);
-        posSale(cashierA, customerA, "CASH");               // actor = cashier A, even though user = customer A
+        posSale(cashierA, customerA, "CASH");
         posSale(cashierB, null, "CASH");
 
         JsonNode mine = body(perform(bearer(get("/activity/me"), customerToken)));
@@ -273,7 +256,6 @@ class ActivityLogTest {
         assertEquals(403, status(as(get("/admin/activity"), cashierA)));
         assertEquals(403, status(as(get("/admin/activity?actorUserId=" + customerB.getUserId()), customerA)));
         assertEquals(200, status(as(get("/admin/activity"), admin)));
-        // an admin can also read its own personal log
         assertEquals(200, status(as(get("/activity/me"), admin)));
     }
 
@@ -284,7 +266,6 @@ class ActivityLogTest {
         posSale(cashierA, null, "CASH");
         perform(json(as(patch("/admin/items/" + item.getItemId() + "/stock"), admin), "{\"delta\":5}"));
 
-        // system-wide: all three actors are visible to the admin
         assertFalse(eventsOf(customerA).isEmpty());
         assertFalse(eventsOf(cashierA).isEmpty());
         assertFalse(eventsOf(admin).isEmpty());
@@ -306,9 +287,7 @@ class ActivityLogTest {
         assertEquals(2, systemActivity("dateFrom=" + today + "&dateTo=" + today + "&actorUserId=" + customerA.getUserId()).size());
         assertEquals(0, systemActivity("dateFrom=" + tomorrow + "&actorUserId=" + customerA.getUserId()).size());
 
-        // an unknown actor id matches nothing (it must not fall back to "every actor")
         assertEquals(0, systemActivity("actorUserId=no-such-user").size());
-        // invalid filters are rejected, not ignored
         assertEquals(400, status(as(get("/admin/activity?actorRole=ROLE_ROOT"), admin)));
         assertEquals(400, status(as(get("/admin/activity?action=NOT_AN_ACTION"), admin)));
         assertEquals(400, status(as(get("/admin/activity?dateFrom=" + tomorrow + "&dateTo=" + today), admin)));
@@ -332,7 +311,6 @@ class ActivityLogTest {
         assertTrue(last.get("last").asBoolean());
         assertEquals("AUTH_LOGIN_SUCCESS", last.get("content").get(0).get("action").asText());
 
-        // strictly newest first across the pages
         List<JsonNode> all = new ArrayList<>();
         for (JsonNode page : new JsonNode[]{first, second, last}) page.get("content").forEach(all::add);
         for (int i = 1; i < all.size(); i++) {
@@ -355,7 +333,7 @@ class ActivityLogTest {
     void activityResponses_neverContainSecrets() throws Exception {
         String token = login(customerA, PASSWORD);
         perform(bearer(json(patch("/account/me/password"), "{\"currentPassword\":\"" + PASSWORD
-                + "\",\"newPassword\":\"Brandnew789\",\"confirmNewPassword\":\"Brandnew789\"}"), token));
+                + "\",\"newPassword\":\"Brandnew789!\",\"confirmNewPassword\":\"Brandnew789!\"}"), token));
         String upi = onlineOrder(customerB, "UPI", 1);
         tieToRazorpay(upi, "order_sec_" + s);
         String sig = signature("order_sec_" + s, "pay_sec_" + s);
@@ -364,10 +342,10 @@ class ActivityLogTest {
         String hash = userRepository.findById(customerA.getId()).orElseThrow().getPassword();
         for (String raw : new String[]{
                 perform(as(get("/admin/activity?size=100"), admin)).getResponse().getContentAsString(),
-                perform(bearer(get("/activity/me"), login(customerA, "Brandnew789"))).getResponse().getContentAsString()}) {
+                perform(bearer(get("/activity/me"), login(customerA, "Brandnew789!"))).getResponse().getContentAsString()}) {
             String lower = raw.toLowerCase();
             assertFalse(raw.contains(PASSWORD));
-            assertFalse(raw.contains("Brandnew789"));
+            assertFalse(raw.contains("Brandnew789!"));
             assertFalse(raw.contains(hash));
             assertFalse(raw.contains(sig));
             assertFalse(raw.contains("pay_sec_" + s));
@@ -378,10 +356,6 @@ class ActivityLogTest {
             assertFalse(raw.contains("Bearer "));
         }
     }
-
-    // =====================================================================================
-    // Recording: accounts
-    // =====================================================================================
 
     @Test
     void registrationAndLogin_areRecorded_withTheAccountAsActor() throws Exception {
@@ -398,7 +372,6 @@ class ActivityLogTest {
         assertEquals("ACCOUNT", registeredEvent.get("targetType").asText());
         assertEquals(registered.getUserId(), registeredEvent.get("targetId").asText());
         assertEquals(0, registeredEvent.get("details").size());
-        // the client-supplied actor fields went nowhere
         assertTrue(ofAction(eventsOf(admin), AuditAction.ACCOUNT_REGISTERED).isEmpty());
 
         login(registered, PASSWORD);
@@ -431,35 +404,27 @@ class ActivityLogTest {
         List<String> changed = new ArrayList<>();
         profile.get("details").get("changedFields").forEach(f -> changed.add(f.asText()));
         assertEquals(List.of("name", "mobile"), changed);
-        // details carry field NAMES only - no old/new values (the actor name is just the actor snapshot)
         String details = profile.get("details").toString();
         assertFalse(details.contains("Aaron"));
         assertFalse(profile.toString().contains(newMobile));
         assertFalse(profile.toString().contains(customerA.getMobile()));
         assertTrue(eventsOf(customerB).isEmpty());
 
-        // a save that changes nothing is not an event
         perform(bearer(json(patch("/account/me"), "{\"name\":\"Aaron Renamed\",\"email\":\""
                 + customerA.getEmail() + "\",\"mobile\":\"" + newMobile + "\"}"), token));
         assertEquals(1, ofAction(eventsOf(customerA), AuditAction.PROFILE_UPDATED).size());
 
         assertEquals(204, perform(bearer(json(patch("/account/me/password"), "{\"currentPassword\":\"" + PASSWORD
-                + "\",\"newPassword\":\"Brandnew789\",\"confirmNewPassword\":\"Brandnew789\"}"), token)).getResponse().getStatus());
+                + "\",\"newPassword\":\"Brandnew789!\",\"confirmNewPassword\":\"Brandnew789!\"}"), token)).getResponse().getStatus());
         JsonNode changedPassword = single(customerA, AuditAction.PASSWORD_CHANGED);
         assertEquals(0, changedPassword.get("details").size());
-        // A5 token revocation still happens
         assertEquals(401, status(bearer(get("/activity/me"), token)));
 
-        // a wrong current password changes nothing and records nothing
-        String fresh = login(customerA, "Brandnew789");
-        perform(bearer(json(patch("/account/me/password"), "{\"currentPassword\":\"Wrong12345\",\"newPassword\":\"Other7890\","
-                + "\"confirmNewPassword\":\"Other7890\"}"), fresh));
+        String fresh = login(customerA, "Brandnew789!");
+        perform(bearer(json(patch("/account/me/password"), "{\"currentPassword\":\"Wrong12345\",\"newPassword\":\"Other7890!\","
+                + "\"confirmNewPassword\":\"Other7890!\"}"), fresh));
         assertEquals(1, ofAction(eventsOf(customerA), AuditAction.PASSWORD_CHANGED).size());
     }
-
-    // =====================================================================================
-    // Recording: cashier management
-    // =====================================================================================
 
     @Test
     void cashierManagement_isRecorded_withTheAdminAsActor_andTheCashierAsTarget() throws Exception {
@@ -471,9 +436,8 @@ class ActivityLogTest {
         String cashierToken = login(cashierA, PASSWORD);
 
         assertEquals(204, status(json(as(post("/admin/cashiers/" + cashierA.getUserId() + "/reset-password"), admin),
-                "{\"password\":\"Fresh4567\"}")));
+                "{\"password\":\"Fresh4567!\"}")));
         assertEquals(200, status(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin), "{\"enabled\":false}")));
-        // repeating the same status is not a new event
         assertEquals(200, status(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin), "{\"enabled\":false}")));
         assertEquals(200, status(json(as(patch("/admin/cashiers/" + cashierA.getUserId() + "/status"), admin), "{\"enabled\":true}")));
 
@@ -485,7 +449,7 @@ class ActivityLogTest {
 
         JsonNode reset = single(admin, AuditAction.CASHIER_PASSWORD_RESET);
         assertEquals(cashierA.getUserId(), reset.get("targetId").asText());
-        assertFalse(reset.toString().contains("Fresh4567"));
+        assertFalse(reset.toString().contains("Fresh4567!"));
 
         JsonNode deactivated = single(admin, AuditAction.CASHIER_DEACTIVATED);
         assertEquals(cashierA.getUserId(), deactivated.get("targetId").asText());
@@ -493,13 +457,10 @@ class ActivityLogTest {
         assertEquals("INACTIVE", deactivated.get("details").get("to").asText());
         JsonNode reactivated = single(admin, AuditAction.CASHIER_REACTIVATED);
         assertEquals(cashierA.getUserId(), reactivated.get("targetId").asText());
-        // newest first: reactivation after deactivation after reset
         assertEquals(List.of("CASHIER_REACTIVATED", "CASHIER_DEACTIVATED", "CASHIER_PASSWORD_RESET", "CASHIER_CREATED"),
                 adminEvents.stream().map(e -> e.get("action").asText()).toList());
 
-        // the events changed nothing about token revocation
         assertEquals(401, status(bearer(get("/activity/me"), cashierToken)));
-        // and they are the admin's actions, not the cashier's
         assertTrue(eventsOf(cashierA).stream().noneMatch(e -> e.get("action").asText().startsWith("CASHIER_")));
     }
 
@@ -511,10 +472,6 @@ class ActivityLogTest {
 
         assertTrue(eventsOf(admin).isEmpty());
     }
-
-    // =====================================================================================
-    // Recording: orders and payments
-    // =====================================================================================
 
     @Test
     void onlineAndPosCreation_recordExactlyOneEvent_withTheRightActor() throws Exception {
@@ -529,7 +486,6 @@ class ActivityLogTest {
         assertEquals("ONLINE", onlineEvent.get("details").get("salesChannel").asText());
         assertEquals(20.2, onlineEvent.get("details").get("grandTotal").asDouble(), 0.0001);
 
-        // POS: the actor is the cashier (createdBy), never the linked customer (user)
         List<JsonNode> posEvents = ofAction(eventsOf(cashierA), AuditAction.POS_ORDER_CREATED);
         assertEquals(2, posEvents.size());
         assertEquals(walkIn, posEvents.get(0).get("targetId").asText());
@@ -540,7 +496,6 @@ class ActivityLogTest {
         assertActor(posEvents.get(1), cashierA);
         assertEquals(1, ofAction(eventsOf(customerA), AuditAction.ONLINE_ORDER_CREATED).size());
         assertTrue(ofAction(eventsOf(customerA), AuditAction.POS_ORDER_CREATED).isEmpty());
-        // no customer identity copied into the event
         assertFalse(posEvents.get(1).toString().contains(customerA.getName()));
         assertFalse(posEvents.get(1).toString().contains(customerA.getMobile()));
     }
@@ -563,7 +518,6 @@ class ActivityLogTest {
         assertEquals(404, status(json(as(post("/orders"), customerA),
                 "{\"paymentMethod\":\"CASH\",\"cartItems\":[{\"itemId\":\"ghost\",\"quantity\":1}]}")));
         assertEquals(409, status(json(as(post("/pos/orders"), cashierA), tooMany)));
-        // an admin is not allowed to create POS orders at all
         assertEquals(403, status(json(as(post("/pos/orders"), admin), tooMany.replace("1000", "1"))));
 
         assertTrue(eventsOf(customerA).isEmpty());
@@ -577,14 +531,12 @@ class ActivityLogTest {
         String orderId = onlineOrder(customerA, "UPI", 1);
         tieToRazorpay(orderId, "order_v_" + s);
 
-        // bad signature: rejected, order untouched, no event
         assertEquals(400, status(json(as(post("/payments/verify"), customerA),
                 verifyBody(orderId, "order_v_" + s, "pay_v_" + s, "deadbeef"))));
         assertTrue(ofAction(eventsOf(customerA), AuditAction.PAYMENT_VERIFIED).isEmpty());
 
         String good = verifyBody(orderId, "order_v_" + s, "pay_v_" + s, signature("order_v_" + s, "pay_v_" + s));
         assertEquals(200, status(json(as(post("/payments/verify"), customerA), good)));
-        // an idempotent replay of the same verification is not a second event
         assertEquals(200, status(json(as(post("/payments/verify"), customerA), good)));
 
         JsonNode verified = single(customerA, AuditAction.PAYMENT_VERIFIED);
@@ -600,11 +552,9 @@ class ActivityLogTest {
 
         assertEquals(200, status(as(post("/orders/" + failed + "/fail-payment"), customerA)));
         assertEquals(200, status(as(post("/orders/" + cancelled + "/cancel"), cashierA)));
-        // repeated / invalid transitions are rejected and record nothing more
         assertEquals(409, status(as(post("/orders/" + failed + "/fail-payment"), customerA)));
         assertEquals(409, status(as(post("/orders/" + failed + "/cancel"), customerA)));
         assertEquals(409, status(as(post("/orders/" + cancelled + "/cancel"), cashierA)));
-        // someone else's order: refused, nothing recorded for them
         assertEquals(403, status(as(post("/orders/" + failed + "/cancel"), customerB)));
 
         JsonNode failEvent = single(customerA, AuditAction.PAYMENT_FAILED);
@@ -626,20 +576,15 @@ class ActivityLogTest {
         order.setCreatedAt(LocalDateTime.now().minusMinutes(31));
         orderEntityRepository.save(order);
 
-        onlineOrder(customerB, "CASH", 1);   // touches the same item -> lazily expires the stale order
+        onlineOrder(customerB, "CASH", 1);
 
         List<JsonNode> system = systemActivity("actorRole=SYSTEM&action=PAYMENT_FAILED&size=100").stream()
                 .filter(e -> stale.equals(e.get("targetId").asText())).toList();
         assertEquals(1, system.size());
         assertTrue(system.get(0).get("actorUserId").isNull());
         assertEquals("RESERVATION_EXPIRED", system.get(0).get("details").get("reason").asText());
-        // not attributed to the customer whose checkout triggered it
         assertTrue(ofAction(eventsOf(customerB), AuditAction.PAYMENT_FAILED).isEmpty());
     }
-
-    // =====================================================================================
-    // Recording: catalog and inventory
-    // =====================================================================================
 
     @Test
     void itemCategoryAndInventoryChanges_areRecorded_andFailuresAreNot() throws Exception {
@@ -664,9 +609,7 @@ class ActivityLogTest {
 
         assertEquals(200, status(json(as(put("/admin/items/" + itemId), admin), "{\"price\":30,\"active\":false}")));
         assertEquals(200, status(json(as(patch("/admin/items/" + itemId + "/stock"), admin), "{\"delta\":-2}")));
-        // failed adjustment (would go below zero/reserved): rejected, not recorded
         assertEquals(409, status(json(as(patch("/admin/items/" + itemId + "/stock"), admin), "{\"delta\":-100}")));
-        // deleting a category that still has items fails, and is not recorded
         assertEquals(409, status(as(delete("/admin/categories/" + categoryId), admin)));
         assertEquals(204, status(as(delete("/admin/items/" + itemId), admin)));
         assertEquals(204, status(as(delete("/admin/categories/" + categoryId), admin)));
@@ -704,10 +647,6 @@ class ActivityLogTest {
         assertTrue(eventsOf(customerA).isEmpty());
         assertTrue(eventsOf(admin).isEmpty());
     }
-
-    // =====================================================================================
-    // Write-once guarantees and rollback semantics
-    // =====================================================================================
 
     @Test
     void noApiCanModifyOrDeleteAuditRecords() throws Exception {
@@ -749,7 +688,7 @@ class ActivityLogTest {
         transactionTemplate.executeWithoutResult(status -> {
             auditService.recordFor(actor, AuditAction.PROFILE_UPDATED, AuditTargetType.ACCOUNT, actor.getUserId(),
                     Map.of("changedFields", List.of("name")));
-            status.setRollbackOnly();   // the business operation failed after recording
+            status.setRollbackOnly();
         });
         assertTrue(eventsOf(customerA).isEmpty());
 

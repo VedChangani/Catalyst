@@ -30,16 +30,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for RazorpayServiceImpl.createOrder:
- *  - the Razorpay order amount always comes from the local order's grandTotal, never from
- *    any client-supplied value (there is no amount parameter to tamper with any more)
- *  - a user cannot create a payment for another user's order
- *  - a nonexistent orderId is rejected
- *  - an order that isn't PENDING_PAYMENT (PAID/CANCELLED/PAYMENT_FAILED) is rejected
- * The actual network call to Razorpay is stubbed via callRazorpayCreateOrder so these tests
- * exercise the real validation/amount-resolution logic without hitting the Razorpay API.
- */
 @ExtendWith(MockitoExtension.class)
 class RazorpayServiceImplTest {
 
@@ -96,7 +86,6 @@ class RazorpayServiceImplTest {
         doReturn(fakeResponse).when(razorpayService).callRazorpayCreateOrder(anyLong(), any());
     }
 
-    // ---- The browser gets the PUBLIC key id the order was created with - never the secret ----
     @Test
     void createOrder_returnsThePublicKeyId_onFirstAndRepeatCalls_andNeverTheSecret() throws Exception {
         ReflectionTestUtils.setField(razorpayService, "razorpayKeyId", "rzp_test_PUBLICKEY");
@@ -122,7 +111,6 @@ class RazorpayServiceImplTest {
         verify(razorpayService, times(1)).callRazorpayCreateOrder(eq(3220L), eq("INR"));
     }
 
-    // ---- Amount always comes from the local order's grandTotal; there is nothing for a client to tamper with ----
     @Test
     void createOrder_usesBackendGrandTotal_convertedToPaise() throws Exception {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -137,29 +125,17 @@ class RazorpayServiceImplTest {
         RazorpayOrderResponse result = razorpayService.createOrder("ORD1", "INR");
 
         assertEquals("rzp_order_1", result.getId());
-        // 202.0 rupees -> 20200 paise, straight from grandTotal - never from a client value.
-        // (eq(long) below is Mockito's primitive overload, so no boxing/ArgumentCaptor pitfalls.)
         verify(razorpayService).callRazorpayCreateOrder(eq(20200L), eq("INR"));
         assertEquals("rzp_order_1", order.getPaymentDetails().getRazorpayOrderId());
-        // Status is untouched - verification (with signature check) is what moves it to PAID.
         assertEquals(OrderStatus.PENDING_PAYMENT, order.getOrderStatus());
     }
 
-    /**
-     * End-to-end proof of the requirement's worked example: the local order's grandTotal is
-     * Rs.500 while the client's JSON body claims an amount of Rs.1. The request is deserialized
-     * with a Jackson mapper configured the way Spring Boot configures the one backing request
-     * body binding, so this genuinely exercises the step where a rogue "amount" field would
-     * have to survive in order to do damage. The Razorpay order must still be Rs.500.
-     */
     @Test
     void createOrder_ignoresClientSuppliedAmount_andChargesOrderGrandTotal() throws Exception {
         String maliciousBody = "{\"orderId\":\"ORD1\",\"currency\":\"INR\",\"amount\":1}";
         ObjectMapper springBootStyleMapper = Jackson2ObjectMapperBuilder.json().build();
         PaymentRequest request = springBootStyleMapper.readValue(maliciousBody, PaymentRequest.class);
 
-        // The DTO has no amount property at all, so the client's value is dropped at binding
-        // time - it never even reaches the service.
         assertNull(springBootStyleMapper.convertValue(request, java.util.Map.class).get("amount"));
 
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -173,17 +149,10 @@ class RazorpayServiceImplTest {
 
         razorpayService.createOrder(request.getOrderId(), request.getCurrency());
 
-        // Rs.500 grandTotal -> 50000 paise. NOT the 100 paise the client asked to be charged.
         verify(razorpayService).callRazorpayCreateOrder(eq(50_000L), eq("INR"));
         verify(razorpayService, never()).callRazorpayCreateOrder(eq(100L), any());
     }
 
-    /**
-     * The generated Razorpay order id must be persisted against the order it was created for,
-     * so the later verification step has something trustworthy to compare against. Asserting on
-     * the entity actually handed to save(...) - rather than on the local fixture - is what makes
-     * this a real check that the right row is being updated.
-     */
     @Test
     void createOrder_persistsRazorpayOrderIdAgainstTheCorrectLocalOrder() throws Exception {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -201,16 +170,10 @@ class RazorpayServiceImplTest {
         verify(orderEntityRepository).save(savedOrder.capture());
         assertEquals("ORD-CORRECT", savedOrder.getValue().getOrderId());
         assertEquals("rzp_order_correct", savedOrder.getValue().getPaymentDetails().getRazorpayOrderId());
-        // Creating the Razorpay order does not by itself settle the payment.
         assertEquals(OrderStatus.PENDING_PAYMENT, savedOrder.getValue().getOrderStatus());
         assertEquals(PaymentDetails.PaymentStatus.PENDING, savedOrder.getValue().getPaymentDetails().getStatus());
     }
 
-    /**
-     * Legacy orders can read back with a null paymentDetails embeddable. The Razorpay order id
-     * still has to land somewhere, so the service initialises it rather than throwing an NPE
-     * after the remote order has already been created.
-     */
     @Test
     void createOrder_initialisesPaymentDetailsWhenMissing() throws Exception {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -229,7 +192,6 @@ class RazorpayServiceImplTest {
         assertEquals("rzp_order_legacy", legacyOrder.getPaymentDetails().getRazorpayOrderId());
     }
 
-    // ---- A user cannot create a payment for another user's order ----
     @Test
     void createOrder_rejectsOrderBelongingToAnotherUser() throws Exception {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -244,7 +206,6 @@ class RazorpayServiceImplTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Nonexistent order id is rejected ----
     @Test
     void createOrder_rejectsNonExistentOrder() {
         authenticateAs("alice@example.com");
@@ -254,7 +215,6 @@ class RazorpayServiceImplTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Only PENDING_PAYMENT orders can create a Razorpay order ----
     @Test
     void createOrder_rejectsAlreadyPaidOrder() {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -294,8 +254,6 @@ class RazorpayServiceImplTest {
         verify(orderEntityRepository, never()).save(any());
     }
 
-    // ---- Batch 14: idempotent create-order, server-controlled currency ----
-
     @Test
     void createOrder_calledTwice_callsRazorpayOnce_andKeepsTheStoredRazorpayOrderId() throws Exception {
         UserEntity alice = aUser(1L, "alice@example.com");
@@ -311,11 +269,9 @@ class RazorpayServiceImplTest {
 
         assertEquals("rzp_order_first", first.getId());
         assertEquals("rzp_order_first", second.getId());
-        // exactly one provider order was created, and the stored id was written once and kept
         verify(razorpayService, times(1)).callRazorpayCreateOrder(anyLong(), any());
         verify(orderEntityRepository, times(1)).save(any(OrderEntity.class));
         assertEquals("rzp_order_first", order.getPaymentDetails().getRazorpayOrderId());
-        // the repeat is rebuilt from the local order: same amount (grandTotal x 100), INR
         assertEquals(20_200, second.getAmount());
         assertEquals("INR", second.getCurrency());
         assertEquals("created", second.getStatus());
@@ -354,7 +310,6 @@ class RazorpayServiceImplTest {
 
             razorpayService.createOrder("ORD-CUR", clientCurrency);
 
-            // amount = persisted grandTotal x 100 (Rs.75.50 -> 7550 paise); currency is always INR
             verify(razorpayService).callRazorpayCreateOrder(eq(7_550L), eq("INR"));
             verify(razorpayService, never()).callRazorpayCreateOrder(anyLong(), argThat(c -> !"INR".equals(c)));
         }
@@ -370,7 +325,6 @@ class RazorpayServiceImplTest {
             when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(alice));
             when(orderEntityRepository.findByOrderIdForUpdate("ORD-T")).thenReturn(Optional.of(order));
 
-            // even with a stored provider id, a non-pending order gets neither a new nor the old one
             assertThrows(IllegalStateException.class, () -> razorpayService.createOrder("ORD-T", "INR"));
         }
         verify(orderEntityRepository, never()).save(any());

@@ -15,9 +15,6 @@ import Button from "../../ui/Button.jsx";
 import {channelLabel, channelTone, formatCurrency, formatDate, orderStatusTone, statusLabel} from "../../util/orderFormat.js";
 import {recentlyPurchased, summarizeOrders} from "../../util/customerHome.js";
 
-// Customer landing page. Reuses GET /orders/my-orders (the caller's own ONLINE + linked POS
-// orders; walk-in sales are never in it) and GET /account/me for the name. Product images come
-// from the already-loaded catalog by itemId.
 const CustomerHome = () => {
     const navigate = useNavigate();
     const {itemsData} = useContext(AppContext);

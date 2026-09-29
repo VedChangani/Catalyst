@@ -9,7 +9,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class StaticResourceConfig implements WebMvcConfigurer {
 
-    // Same directory the item/category services write uploads to (app.uploads.dir).
     @Value("${app.uploads.dir}")
     private String uploadsDir;
 

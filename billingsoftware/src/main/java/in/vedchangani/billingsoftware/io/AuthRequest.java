@@ -11,7 +11,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class AuthRequest {
 
-    // Email address or mobile number. "email" is still accepted so existing clients keep working.
     @JsonAlias("email")
     @NotBlank(message = "Email or mobile is required")
     private String identifier;

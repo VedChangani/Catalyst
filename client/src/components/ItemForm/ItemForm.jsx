@@ -18,8 +18,6 @@ const emptyData = {
     active: true,
 };
 
-// editingItem: null for "add new item"; an ItemResponse-shaped object to edit its metadata.
-// onDone: called after a successful edit save (or cancel) so the parent can clear edit mode.
 const ItemForm = ({editingItem = null, onDone}) => {
     const {categories, setItemsData, itemsData, setCategories} = useContext(AppContext);
     const [image, setImage] = useState(false);
@@ -28,10 +26,6 @@ const ItemForm = ({editingItem = null, onDone}) => {
 
     const isEditing = Boolean(editingItem);
 
-    // Pre-fill the form when an item is selected for editing, and reset it back to blank
-    // when editing ends - stockQuantity/reservedQuantity are deliberately left out of this
-    // form's editable fields in edit mode; stock only changes via the dedicated adjustment
-    // control in ItemList.
     useEffect(() => {
         if (editingItem) {
             setData({

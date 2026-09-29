@@ -5,8 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Minimum a cashier needs to pick an existing registered customer. No password, role or
-// timestamps.
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

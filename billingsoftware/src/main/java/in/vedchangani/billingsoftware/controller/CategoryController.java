@@ -60,9 +60,6 @@ public class CategoryController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @DeleteMapping("/admin/categories/{categoryId}")
     public void remove(@PathVariable String categoryId) {
-        // Not-found and conflict (category still referenced by items) are distinct outcomes -
-        // CategoryServiceImpl throws the corresponding typed exception and GlobalExceptionHandler
-        // maps each to its own status (404 / 409) rather than collapsing both into 404.
         categoryService.delete(categoryId);
     }
 }

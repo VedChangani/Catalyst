@@ -17,9 +17,7 @@ public interface ItemService {
 
     void deleteItem(String itemId);
 
-    // General metadata edit. Never touches stockQuantity/reservedQuantity - see ItemUpdateRequest.
     ItemResponse update(String itemId, ItemUpdateRequest request);
 
-    // Dedicated stock mutation path, backed by the atomic ItemRepository.adjustStockQuantity query.
     ItemResponse adjustStock(String itemId, StockAdjustmentRequest request);
 }

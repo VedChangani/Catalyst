@@ -13,17 +13,6 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/**
- * Focused tests for the inventory-mutation queries added to ItemRepository in the inventory
- * foundation batch: reserveStock, commitReservedStock, releaseReservedStock, adjustStockQuantity.
- *
- * These run against the H2 ("test" profile, MODE=MySQL) datasource used by every other Spring
- * context test in this project - NOT a real MySQL/InnoDB instance. They verify the *query logic*
- * (the WHERE-clause guards produce the right affected-row count in each case), not true InnoDB
- * row-locking/concurrency behavior. Genuine concurrent-transaction correctness under MySQL InnoDB
- * is a documented follow-up (see the approved inventory plan, section J) and is intentionally not
- * claimed by this test class.
- */
 @DataJpaTest
 @ActiveProfiles("test")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -57,8 +46,6 @@ class ItemRepositoryTest {
                 .build());
     }
 
-    // ---- reserveStock ----
-
     @Test
     void reserveStock_succeedsWhenSufficientAvailableStockExists() {
         anItem("ITEM1", 10, 0, true);
@@ -73,7 +60,6 @@ class ItemRepositoryTest {
 
     @Test
     void reserveStock_failsWhenAvailableStockIsInsufficient() {
-        // stock=5, already reserved=3 -> available=2, requesting 3 must fail
         anItem("ITEM1", 5, 3, true);
 
         int updated = itemRepository.reserveStock("ITEM1", 3);
@@ -94,8 +80,6 @@ class ItemRepositoryTest {
         assertEquals(0, reloaded.getReservedQuantity());
     }
 
-    // ---- commitReservedStock ----
-
     @Test
     void commitReservedStock_succeedsWhenEnoughIsReserved() {
         anItem("ITEM1", 10, 4, true);
@@ -110,7 +94,6 @@ class ItemRepositoryTest {
 
     @Test
     void commitReservedStock_refusesToDropReservedQuantityBelowZero() {
-        // only 2 reserved, trying to commit 5 must be refused entirely
         anItem("ITEM1", 10, 2, true);
 
         int updated = itemRepository.commitReservedStock("ITEM1", 5);
@@ -120,8 +103,6 @@ class ItemRepositoryTest {
         assertEquals(2, reloaded.getReservedQuantity(), "a failed commit must not partially mutate reservedQuantity");
         assertEquals(10, reloaded.getStockQuantity(), "a failed commit must not touch stockQuantity");
     }
-
-    // ---- releaseReservedStock ----
 
     @Test
     void releaseReservedStock_succeedsWhenEnoughIsReserved() {
@@ -146,8 +127,6 @@ class ItemRepositoryTest {
         assertEquals(2, reloaded.getReservedQuantity(), "a failed release must not partially mutate reservedQuantity");
     }
 
-    // ---- adjustStockQuantity ----
-
     @Test
     void adjustStockQuantity_allowsRestockingUpward() {
         anItem("ITEM1", 10, 4, true);
@@ -161,7 +140,6 @@ class ItemRepositoryTest {
 
     @Test
     void adjustStockQuantity_refusesToDropStockBelowReservedQuantity() {
-        // stock=10, reserved=8 -> a delta of -5 would leave stock=5 < reserved=8, must be refused
         anItem("ITEM1", 10, 8, true);
 
         int updated = itemRepository.adjustStockQuantity("ITEM1", -5);
@@ -194,7 +172,6 @@ class ItemRepositoryTest {
 
     @Test
     void adjustStockQuantity_allowsNegativeDeltaThatStaysAtOrAboveReservedQuantity() {
-        // stock=10, reserved=3 -> a delta of -5 leaves stock=5 >= reserved=3, must be allowed
         anItem("ITEM1", 10, 3, true);
 
         int updated = itemRepository.adjustStockQuantity("ITEM1", -5);

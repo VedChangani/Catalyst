@@ -32,11 +32,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Day 4 / Batch 12: order identity and payment-identifier invariants, and paidAt, against the H2
- * "test" datasource through the real transactional services. Deliberately NOT @Transactional so
- * that constraint violations and service transactions are real.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 class OrderIdentityAndPaymentInvariantsTest {
@@ -80,8 +75,6 @@ class OrderIdentityAndPaymentInvariantsTest {
         userRepository.deleteAll();
     }
 
-    // ---- helpers ----
-
     private OrderRequest request(String paymentMethod) {
         return OrderRequest.builder()
                 .paymentMethod(paymentMethod)
@@ -102,7 +95,6 @@ class OrderIdentityAndPaymentInvariantsTest {
                 .build();
     }
 
-    // A pending UPI order that has been tied to the given Razorpay order, as create-order would.
     private String pendingUpiOrderTiedTo(String razorpayOrderId) {
         String orderId = orderService.createOrder(request("UPI")).getOrderId();
         OrderEntity order = stored(orderId);
@@ -126,8 +118,6 @@ class OrderIdentityAndPaymentInvariantsTest {
         request.setRazorpaySignature(hex.toString());
         return request;
     }
-
-    // ---- order identity ----
 
     @Test
     void rapidSuccessiveOrders_getDistinctWellFormedOrderIds() {
@@ -156,8 +146,6 @@ class OrderIdentityAndPaymentInvariantsTest {
         assertThrows(DataIntegrityViolationException.class, () -> orderEntityRepository.saveAndFlush(second));
     }
 
-    // ---- provider identifiers ----
-
     @Test
     void database_rejectsDuplicateRazorpayOrderId() {
         orderEntityRepository.saveAndFlush(bareOrder(PaymentDetails.builder()
@@ -182,7 +170,6 @@ class OrderIdentityAndPaymentInvariantsTest {
 
     @Test
     void nullProviderIdentifiers_areAllowedOnManyOrders() {
-        // CASH orders never have Razorpay identifiers
         orderService.createOrder(request("CASH"));
         orderService.createOrder(request("CASH"));
         orderService.createOrder(request("UPI"));
@@ -194,8 +181,6 @@ class OrderIdentityAndPaymentInvariantsTest {
             assertNull(order.getPaymentDetails().getRazorpayPaymentId());
         });
     }
-
-    // ---- paidAt ----
 
     @Test
     void paidAt_isSetOnSuccessfulVerification_andPreservedOnIdempotentReplay() throws Exception {

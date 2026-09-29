@@ -13,11 +13,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * Verifies that GlobalExceptionHandler maps each exception type to the intended HTTP status and
- * never leaks internal detail (e.g. a DataIntegrityViolationException's raw SQL message) into
- * the response body.
- */
 class GlobalExceptionHandlerTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();

@@ -21,16 +21,9 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-/**
- * Focused tests for CategoryServiceImpl.delete:
- *  - deleting a category that still has items is a business conflict (409), not a 404
- *  - deleting a nonexistent category is a 404
- *  - deleting an empty category succeeds
- */
 @ExtendWith(MockitoExtension.class)
 class CategoryServiceImplTest {
 
-    // Upload directory for these tests (deleted by JUnit), never the real uploads/ folder.
     @TempDir
     Path uploadsTempDir;
 

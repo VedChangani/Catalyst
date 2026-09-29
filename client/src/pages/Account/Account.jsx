@@ -26,8 +26,6 @@ const tabClass = (active) =>
         active ? "bg-primary text-white shadow-[2px_2px_0_#111827]" : "bg-surface hover:bg-primary/10"
     }`;
 
-// The signed-in user's own account (every role): Profile and Security. The backend derives the
-// account from the login, so no user id is ever sent. Role and status are shown, never editable.
 const Account = () => {
     const navigate = useNavigate();
     const {auth, setAuthData, clearCart} = useContext(AppContext);
@@ -88,8 +86,6 @@ const Account = () => {
                 mobile: profile.mobile.trim() ? normalizeMobile(profile.mobile) : "",
             });
             applyAccount(response.data.account);
-            // Changing the email replaces the login token (its subject is the email): store the
-            // new one so the session carries on.
             if (response.data.token) {
                 localStorage.setItem("token", response.data.token);
                 setAuthData(response.data.token, auth.role);
@@ -119,8 +115,6 @@ const Account = () => {
         try {
             await changeMyPassword(passwords);
             setPasswords(EMPTY_PASSWORDS);
-            // The backend ends every session for this account on a password change, so sign out
-            // here too and ask for the new password.
             localStorage.removeItem("token");
             localStorage.removeItem("role");
             clearCart();

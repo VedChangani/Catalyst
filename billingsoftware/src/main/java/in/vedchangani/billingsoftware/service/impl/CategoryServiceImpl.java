@@ -40,18 +40,15 @@ public class CategoryServiceImpl implements CategoryService {
     private final ItemRepository itemRepository;
     private final AuditService auditService;
 
-    // Public base URL of /uploads/** (configuration, not code - see application.properties).
     @Value("${app.uploads.public-base-url}")
     private String uploadsPublicBaseUrl;
 
     @Value("${app.uploads.dir}")
     private String uploadsDir;
 
-    // Each mutation is one transaction with its audit event.
     @Override
     @Transactional
     public CategoryResponse add(CategoryRequest request, MultipartFile file) throws IOException {
-        //String imgUrl = fileUploadService.uploadFile(file);
         String fileName = UUID.randomUUID().toString()+"."+StringUtils.getFilenameExtension(file.getOriginalFilename());
         Path uploadPath = UploadUrls.directory(uploadsDir);
         Files.createDirectories(uploadPath);
@@ -80,17 +77,12 @@ public class CategoryServiceImpl implements CategoryService {
         CategoryEntity existingCategory = categoryRepository.findByCategoryId(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found: "+categoryId));
 
-        // A category with items still assigned to it cannot be deleted (the DB itself enforces
-        // this via ON DELETE RESTRICT on tbl_items.category_id) - check for that up front and
-        // report it as the business conflict it is, rather than letting the resulting
-        // DataIntegrityViolationException be mistaken for "category not found".
         int itemCount = itemRepository.countByCategoryId(existingCategory.getId());
         if (itemCount > 0) {
             throw new ConflictException("Cannot delete category '" + existingCategory.getName()
                     + "' because " + itemCount + " item(s) still reference it");
         }
 
-        //fileUploadService.deleteFile(existingCategory.getImgUrl());
         String imgUrl = existingCategory.getImgUrl();
         String fileName = imgUrl.substring(imgUrl.lastIndexOf("/")+1);
         Path uploadPath = UploadUrls.directory(uploadsDir);

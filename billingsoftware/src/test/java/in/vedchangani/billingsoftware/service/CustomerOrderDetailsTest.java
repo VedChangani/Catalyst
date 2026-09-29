@@ -36,10 +36,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Batch 7: customer order details (GET /orders/{orderId}) and the unified ONLINE + POS purchase
- * history (GET /orders/my-orders), through the real security chain and real H2 persistence.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -83,16 +79,12 @@ class CustomerOrderDetailsTest {
         userRepository.deleteAll();
     }
 
-    // ---- helpers ----
-
     private UserEntity aUser(String name, String email, String role) {
         return userRepository.save(UserEntity.builder()
                 .userId("uid-" + UUID.randomUUID()).email(email).password("not-used")
                 .role(role).name(name).mobile(in.vedchangani.billingsoftware.TestMobiles.next()).build());
     }
 
-    // Seeds an order directly, with a fixed orderId/createdAt (the entity's @PrePersist would
-    // otherwise stamp a millisecond-based id that two quick inserts could share).
     private OrderEntity seed(UserEntity customer, UserEntity createdBy, SalesChannel channel,
                              LocalDateTime createdAt, String customerName, String phone) {
         List<OrderItemEntity> lines = new ArrayList<>();
@@ -145,8 +137,6 @@ class CustomerOrderDetailsTest {
         return json(result).get("orderId").asText();
     }
 
-    // ---- customer history ----
-
     @Test
     void history_includesOwnOnlineAndPosOrders_newestFirst() throws Exception {
         LocalDateTime now = LocalDateTime.now();
@@ -168,12 +158,9 @@ class CustomerOrderDetailsTest {
     @Test
     void history_excludesOtherCustomersAndWalkInOrders_evenWithMatchingNameOrPhone() throws Exception {
         OrderEntity mine = seed(customerA, cashier, SalesChannel.POS);
-        // other customer's orders, both channels
         seed(customerB, null, SalesChannel.ONLINE);
         seed(customerB, cashier, SalesChannel.POS);
-        // walk-in POS orders that carry customer A's name and phone but no account
         seed(null, cashier, SalesChannel.POS, LocalDateTime.now(), customerA.getName(), "9876543210");
-        // an order "created by" customer A's account id but belonging to nobody / someone else
         seed(customerB, customerA, SalesChannel.POS, LocalDateTime.now(), customerA.getName(), "9876543210");
 
         JsonNode history = json(getAs(customerA, "USER", "/orders/my-orders", 200));
@@ -188,8 +175,6 @@ class CustomerOrderDetailsTest {
 
         assertEquals(0, json(getAs(customerB, "USER", "/orders/my-orders", 200)).size());
     }
-
-    // ---- customer detail: access ----
 
     @Test
     void detail_ownOnlineOrder_succeeds() throws Exception {
@@ -234,7 +219,6 @@ class CustomerOrderDetailsTest {
 
     @Test
     void detail_nameOrPhoneMatch_doesNotGrantAnotherUsersOrder() throws Exception {
-        // customer B's order carries customer A's exact name and phone.
         OrderEntity order = seed(customerB, null, SalesChannel.ONLINE, LocalDateTime.now(), customerA.getName(), "9876543210");
 
         getAs(customerA, "USER", "/orders/" + order.getOrderId(), 403);
@@ -242,7 +226,6 @@ class CustomerOrderDetailsTest {
 
     @Test
     void detail_createdByDoesNotGrantCustomerAccess() throws Exception {
-        // customer A's account is recorded as createdBy of an order that belongs to B.
         OrderEntity order = seed(customerB, customerA, SalesChannel.POS);
 
         getAs(customerA, "USER", "/orders/" + order.getOrderId(), 403);
@@ -265,20 +248,16 @@ class CustomerOrderDetailsTest {
 
     @Test
     void literalRoutesAreNotShadowedByTheOrderIdRoute() throws Exception {
-        // /orders/latest stays ADMIN-only and /orders/my-orders stays a list.
         getAs(customerA, "USER", "/orders/latest", 403);
         getAs(admin, "ADMIN", "/orders/latest", 200);
         assertTrue(json(getAs(customerA, "USER", "/orders/my-orders", 200)).isArray());
     }
-
-    // ---- historical snapshot ----
 
     @Test
     void detail_usesHistoricalSnapshot_notCurrentCatalog() throws Exception {
         String orderId = createOnlineOrder(customerA, "CASH");
         OrderEntity before = orderEntityRepository.findByOrderId(orderId).orElseThrow();
 
-        // The catalog changes after the purchase.
         ItemEntity current = itemRepository.findByItemId(coffee.getItemId()).orElseThrow();
         current.setPrice(BigDecimal.valueOf(140));
         current.setName("Premium Coffee");
@@ -290,7 +269,6 @@ class CustomerOrderDetailsTest {
         assertEquals(100.0, line.get("price").asDouble(), 0.0001);
         assertEquals(2, line.get("quantity").asInt());
         assertEquals(200.0, line.get("lineTotal").asDouble(), 0.0001);
-        // the history list is snapshot-based too
         JsonNode listed = json(getAs(customerA, "USER", "/orders/my-orders", 200)).get(0).get("items").get(0);
         assertEquals("Coffee", listed.get("name").asText());
         assertEquals(100.0, listed.get("price").asDouble(), 0.0001);
@@ -339,8 +317,6 @@ class CustomerOrderDetailsTest {
         assertEquals(300.0, line.get("lineTotal").asDouble(), 0.0001);
     }
 
-    // ---- payment security ----
-
     @Test
     void customerResponses_neverContainSignatureSecretsOrCredentials() throws Exception {
         OrderEntity order = seed(customerA, null, SalesChannel.ONLINE);
@@ -366,19 +342,15 @@ class CustomerOrderDetailsTest {
         }
     }
 
-    // ---- POS payment lifecycle is unchanged ----
-
     @Test
     void posCustomer_canSeeTheirPosOrderButCannotOperateItsPaymentLifecycle() throws Exception {
         String orderId = createPosOrder(cashier, "CASHIER", customerA, "UPI");
 
-        // visible in history and detail
         JsonNode history = json(getAs(customerA, "USER", "/orders/my-orders", 200));
         assertEquals(1, history.size());
         assertEquals(orderId, history.get(0).get("orderId").asText());
         getAs(customerA, "USER", "/orders/" + orderId, 200);
 
-        // but no lifecycle control
         mockMvc.perform(post("/orders/" + orderId + "/cancel").with(user(customerA.getEmail()).roles("USER")))
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/orders/" + orderId + "/fail-payment").with(user(customerA.getEmail()).roles("USER")))
@@ -389,7 +361,6 @@ class CustomerOrderDetailsTest {
                 .andExpect(status().isForbidden());
         assertEquals(OrderStatus.PENDING_PAYMENT, orderEntityRepository.findByOrderId(orderId).orElseThrow().getOrderStatus());
 
-        // the creating cashier still can
         mockMvc.perform(post("/orders/" + orderId + "/cancel").with(user(cashier.getEmail()).roles("CASHIER")))
                 .andExpect(status().isOk());
     }
@@ -398,7 +369,7 @@ class CustomerOrderDetailsTest {
     void sameCustomer_seesOnlineAndPosPurchasesTogether_viaRealCreationFlows() throws Exception {
         String online = createOnlineOrder(customerA, "CASH");
         String pos = createPosOrder(cashier, "CASHIER", customerA, "CASH");
-        createPosOrder(cashier, "CASHIER", null, "CASH"); // walk-in: must not appear
+        createPosOrder(cashier, "CASHIER", null, "CASH");
 
         JsonNode history = json(getAs(customerA, "USER", "/orders/my-orders", 200));
 
@@ -406,7 +377,6 @@ class CustomerOrderDetailsTest {
         List<String> ids = List.of(history.get(0).get("orderId").asText(), history.get(1).get("orderId").asText());
         assertTrue(ids.contains(online));
         assertTrue(ids.contains(pos));
-        // each detail is reachable
         getAs(customerA, "USER", "/orders/" + online, 200);
         getAs(customerA, "USER", "/orders/" + pos, 200);
     }

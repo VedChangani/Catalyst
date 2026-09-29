@@ -35,19 +35,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-/**
- * A request only ever authenticates with a token this server issued, that has not expired, whose
- * subject is a live account, and whose account state still matches (that last part - password reset,
- * deactivation - is covered by SecurityHardeningTest). Every other kind of bearer token must simply
- * be "not authenticated": a 401 in the standard error body, never a 500 and never somebody's
- * identity. Runs through the real JWT filter, security chain and controllers.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class JwtRejectionTest {
 
-    private static final String PASSWORD = "Secret123";
+    private static final String PASSWORD = "Secret123!";
     private static final String PROTECTED_URL = "/account/me";
 
     @Value("${jwt.secret.key}") private String jwtSecret;
@@ -90,7 +83,6 @@ class JwtRejectionTest {
         return mockMvc.perform(get(PROTECTED_URL).header("Authorization", authorization)).andReturn();
     }
 
-    // a token this server would accept, except for the one property under test
     private String forgedToken(String subject, Date expiry, String secret) {
         return Jwts.builder().claim("tokenVersion", 0).setSubject(subject).setIssuedAt(new Date())
                 .setExpiration(expiry).signWith(SignatureAlgorithm.HS256, secret).compact();
@@ -114,11 +106,9 @@ class JwtRejectionTest {
         String[] parts = real.split("\\.");
         Date future = new Date(System.currentTimeMillis() + 3_600_000);
 
-        // signature byte flipped (first character: the last one only carries padding bits)
         char flipped = parts[2].charAt(0) == 'A' ? 'B' : 'A';
         String badSignature = parts[0] + "." + parts[1] + "." + flipped + parts[2].substring(1);
 
-        // privilege escalation attempt: a customer's own token with the subject rewritten to the admin's
         JsonNode payload = objectMapper.readTree(Base64.getUrlDecoder().decode(parts[1]));
         Map<String, Object> claims = new LinkedHashMap<>();
         payload.fields().forEachRemaining(e -> claims.put(e.getKey(), e.getValue().isNumber() ? e.getValue().numberValue() : e.getValue().asText()));
@@ -126,7 +116,6 @@ class JwtRejectionTest {
         String rewrittenSubject = parts[0] + "."
                 + base64Url(objectMapper.writeValueAsString(claims).getBytes(StandardCharsets.UTF_8)) + "." + parts[2];
 
-        // unsigned token ("alg":"none") naming the admin
         String unsigned = base64Url("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8)) + "."
                 + base64Url(("{\"sub\":\"" + admin.getEmail() + "\",\"tokenVersion\":0}").getBytes(StandardCharsets.UTF_8)) + ".";
 

@@ -6,8 +6,6 @@ import Button from "../../ui/Button.jsx";
 const MIN_SEARCH_LENGTH = 2;
 const DEBOUNCE_MS = 350;
 
-// Walk-in by default. The cashier may explicitly pick an existing registered customer; the
-// choice is identified by the backend-provided userId only.
 const PosCustomerSelector = ({selectedCustomer, onSelect, onClear, disabled = false}) => {
     const [query, setQuery] = useState("");
     const [results, setResults] = useState([]);
@@ -21,8 +19,6 @@ const PosCustomerSelector = ({selectedCustomer, onSelect, onClear, disabled = fa
         if (!searchable) {
             return undefined;
         }
-        // Debounced; each new term aborts the previous request so a slow older response can
-        // never replace the results of what the cashier typed last.
         const controller = new AbortController();
         const timer = setTimeout(() => {
             setSearching(true);

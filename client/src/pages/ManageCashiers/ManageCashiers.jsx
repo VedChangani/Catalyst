@@ -10,11 +10,11 @@ import Button from "../../ui/Button.jsx";
 import Badge from "../../ui/Badge.jsx";
 import Input from "../../ui/Input.jsx";
 import {formatCurrency, formatDate} from "../../util/orderFormat.js";
+import {passwordPolicyError} from "../../util/accountValidation.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMPTY_FORM = {name: "", email: "", mobile: "", password: ""};
 
-// Same rules as the backend (and customer registration). The backend re-validates regardless.
 const normalizeMobile = (value) => {
     let digits = value.trim().replace(/[\s\-().]/g, "");
     if (digits.startsWith("+91")) {
@@ -27,15 +27,6 @@ const normalizeMobile = (value) => {
     return /^[6-9][0-9]{9}$/.test(digits) ? digits : null;
 };
 
-const passwordError = (password) => {
-    if (!password) return "Password is required";
-    if (password.length < 8 || password.length > 72) return "Password must be between 8 and 72 characters";
-    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
-        return "Password must contain at least one letter and one number";
-    }
-    return null;
-};
-
 const validateCreate = (form) => {
     const errors = {};
     if (!form.name.trim()) errors.name = "Name is required";
@@ -44,14 +35,11 @@ const validateCreate = (form) => {
     else if (!EMAIL_PATTERN.test(form.email.trim())) errors.email = "Enter a valid email address";
     if (!form.mobile.trim()) errors.mobile = "Mobile is required";
     else if (!normalizeMobile(form.mobile)) errors.mobile = "Enter a valid 10-digit Indian mobile number";
-    const pwd = passwordError(form.password);
+    const pwd = passwordPolicyError(form.password);
     if (pwd) errors.password = pwd;
     return errors;
 };
 
-// ADMIN only (see App.jsx): create cashier accounts, activate/deactivate them, reset their
-// password, and jump to their sales in All Orders. Cashiers are never deleted and their role can
-// never be changed from here - the backend enforces both.
 const ManageCashiers = () => {
     const navigate = useNavigate();
     const [cashiers, setCashiers] = useState([]);
@@ -63,11 +51,9 @@ const ManageCashiers = () => {
     const [formErrors, setFormErrors] = useState({});
     const [creating, setCreating] = useState(false);
 
-    // One row mutation at a time per cashier: a second click while a request is in flight is ignored.
     const [busyId, setBusyId] = useState(null);
     const busyRef = useRef(null);
 
-    // Password reset panel for a single cashier; the typed passwords only ever live in this state.
     const [resetFor, setResetFor] = useState(null);
     const [resetForm, setResetForm] = useState({password: "", confirm: ""});
     const [resetErrors, setResetErrors] = useState({});
@@ -162,7 +148,7 @@ const ManageCashiers = () => {
     const onReset = (e, cashier) => {
         e.preventDefault();
         const errors = {};
-        const pwd = passwordError(resetForm.password);
+        const pwd = passwordPolicyError(resetForm.password);
         if (pwd) errors.password = pwd;
         if (resetForm.confirm !== resetForm.password) errors.confirm = "Passwords do not match";
         setResetErrors(errors);
@@ -200,7 +186,7 @@ const ManageCashiers = () => {
                                placeholder="98765 43210" value={form.mobile} onChange={onFormChange} autoComplete="off"
                                error={formErrors.mobile} aria-invalid={Boolean(formErrors.mobile)} />
                         <Input label="Initial password" id="cashier-password" name="password" type="password"
-                               placeholder="At least 8 characters, a letter and a number" value={form.password}
+                               placeholder="8+ characters: upper, lower, number, symbol" value={form.password}
                                onChange={onFormChange} autoComplete="new-password" error={formErrors.password}
                                aria-invalid={Boolean(formErrors.password)} />
                         <Button type="submit" variant="primary" className="w-full" disabled={creating}>

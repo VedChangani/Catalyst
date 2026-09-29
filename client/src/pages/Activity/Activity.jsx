@@ -28,9 +28,6 @@ const FILTER_KEYS = ["action", "actorRole", "targetType", "actorUserId", "dateFr
 const readFilters = (searchParams) =>
     Object.fromEntries(FILTER_KEYS.map((key) => [key, (searchParams.get(key) || "").slice(0, 100)]));
 
-// One page for every role. ADMIN sees System Activity (everyone's events, with filters); customers
-// and cashiers see their own Activity Log. Which log is returned is decided by the backend from
-// the login - this page never sends a user id for the personal log.
 const Activity = () => {
     const {auth} = useContext(AppContext);
     const system = auth.role === ROLE_ADMIN;
@@ -45,7 +42,6 @@ const Activity = () => {
     const [loadError, setLoadError] = useState(null);
     const [reloadToken, setReloadToken] = useState(0);
 
-    // keep the filter form in step with the URL (back/forward, Clear)
     useEffect(() => setDraft(filters), [filters]);
 
     useEffect(() => {
@@ -73,7 +69,7 @@ const Activity = () => {
             const value = (draft[key] || "").trim();
             if (value) next[key] = value;
         });
-        setSearchParams(next);   // a new filter starts again at the first page
+        setSearchParams(next);
     };
 
     const clearFilters = () => setSearchParams({});
