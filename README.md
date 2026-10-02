@@ -1,20 +1,17 @@
-# Catalyst
+# Catalyst - Store Operations Management Platform
 
-# Catalyst — Retail Commerce & Store Operations Platform
-
-A retail commerce and store operations platform with online shopping, point-of-sale billing, inventory management, payments, analytics, and administration.
+A store operations management platform focused on point-of-sale billing, inventory management, payments, analytics, and administration.
 
 ## Overview
 
-Catalyst serves three kinds of users from one backend and one web app:
+Catalyst brings store operations and customer shopping into one backend and one web app, serving three kinds of users:
 
-- **Customers** register, browse the catalog, fill a cart, check out (cash or Razorpay), and track their orders.
 - **Cashiers** bill in-store sales at the POS, either for a walk-in customer or for a registered customer they look up, and review their own sales.
 - **Admins** manage the catalog, categories and cashier accounts, review every order (online and POS), and view the dashboard, analytics and system-wide activity log.
+- **Customers** register, browse the catalog, fill a cart, check out (cash or Razorpay), and track their orders.
 
 ## Key Features
 
-- **Shopping and checkout** – catalog with categories, cart, online checkout by CASH or UPI (Razorpay), and order history for customers.
 - **POS** – cashier billing with either a walk-in customer (no account) or an explicitly selected registered customer; "My Sales" per cashier.
 - **Inventory** – stock, reserved quantity and low-stock threshold per item, with server-side reservation, commit and release; admin stock adjustment.
 - **Order management** – admins list all orders with server-side filtering, sorting and paging (including by cashier or customer). Orders are never deleted.
@@ -23,6 +20,7 @@ Catalyst serves three kinds of users from one backend and one web app:
 - **Audit / activity log** – persistent, write-once log of meaningful state changes and security events. Each user sees their own; admins see all with filters.
 - **Accounts** – every role can update its own name, email, mobile and password.
 - **Security** – JWT auth, role-based access, ownership checks, server-side pricing (see [Security](#security)).
+- **Customer online shopping** – catalog with categories, cart, online checkout by CASH or UPI (Razorpay), and order history for customers.
 
 ## User Roles
 
